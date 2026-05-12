@@ -30,7 +30,7 @@ def _pct(d: dict, key: str) -> float | None:
 def stock_quote(code: str) -> dict:
     """Get real-time stock quote. Returns dict with price, PE, PB, PS, market cap, YoY etc."""
     secid = parse_secid(code)
-    url = f"http://push2.eastmoney.com/api/qt/stock/get?ut=bd_1_dac_1_12345&fields=f9,f23,f37,f43,f44,f45,f46,f47,f48,f50,f55,f57,f58,f84,f100,f116,f117,f152,f162,f163,f167,f168,f169,f170,f171,f177&secid={secid}"
+    url = f"http://push2.eastmoney.com/api/qt/stock/get?ut=bd_1_dac_1_12345&fields=f9,f23,f37,f43,f44,f45,f46,f47,f48,f50,f55,f57,f58,f84,f100,f127,f128,f116,f117,f152,f162,f163,f167,f168,f169,f170,f171,f177&secid={secid}"
     data = em_get(url)
     if not data or not data.get("data"):
         return {"error": "Failed to get quote", "code": code}
@@ -55,5 +55,6 @@ def stock_quote(code: str) -> dict:
         "circulating_shares": _val(d, "f117"),
         "revenue_yoy": _pct(d, "f169"),
         "profit_yoy": _pct(d, "f170"),
-        "industry": d.get("f100", ""),
+        "industry": d.get("f127", d.get("f100", "")),
+        "region": d.get("f128", ""),
     }
