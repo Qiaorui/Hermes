@@ -259,3 +259,106 @@ def mcp_factor_composite(code: str, weights: str = "") -> str:
 
 if __name__ == "__main__":
     mcp.run()
+
+
+# ── Portfolio CRUD MCP tools ──
+
+@mcp.tool()
+def mcp_add_holding(code: str, name: str, cost_price: float, shares: int, buy_date: str = "") -> str:
+    """Add a stock to portfolio holdings.
+
+    Args:
+        code: Stock code, e.g. '002352'.
+        name: Stock name, e.g. '顺丰控股'.
+        cost_price: Buy price per share.
+        shares: Number of shares held.
+        buy_date: Buy date in YYYY-MM-DD format (empty = today).
+    """
+    from datetime import date as _date
+    from hermes.portfolio.db import add_holding
+    if not buy_date:
+        buy_date = str(_date.today())
+    h = add_holding(code, name, cost_price, shares, buy_date)
+    return json.dumps({"status": "added", "code": h.code, "name": h.name, "cost": h.cost_price, "shares": h.shares}, ensure_ascii=False)
+
+
+@mcp.tool()
+def mcp_remove_holding(code: str) -> str:
+    """Remove a stock from portfolio holdings.
+
+    Args:
+        code: Stock code to remove.
+    """
+    from hermes.portfolio.db import remove_holding
+    ok = remove_holding(code)
+    return json.dumps({"status": "removed" if ok else "not_found", "code": code}, ensure_ascii=False)
+
+
+@mcp.tool()
+def mcp_list_holdings() -> str:
+    """List all portfolio holdings with code, name, cost, shares, buy_date."""
+    from hermes.portfolio.db import list_holdings
+    holdings = list_holdings()
+    items = [{"code": h.code, "name": h.name, "cost_price": h.cost_price, "shares": h.shares, "buy_date": h.buy_date} for h in holdings]
+    return json.dumps({"count": len(items), "holdings": items}, ensure_ascii=False)
+
+
+@mcp.tool()
+def mcp_add_watch(code: str, name: str) -> str:
+    """Add a stock to watchlist.
+
+    Args:
+        code: Stock code, e.g. '002352'.
+        name: Stock name, e.g. '顺丰控股'.
+    """
+    from hermes.portfolio.db import add_watch
+    w = add_watch(code, name)
+    return json.dumps({"status": "added", "code": w.code, "name": w.name}, ensure_ascii=False)
+
+
+@mcp.tool()
+def mcp_remove_watch(code: str) -> str:
+    """Remove a stock from watchlist.
+
+    Args:
+        code: Stock code to remove.
+    """
+    from hermes.portfolio.db import remove_watch
+    ok = remove_watch(code)
+    return json.dumps({"status": "removed" if ok else "not_found", "code": code}, ensure_ascii=False)
+
+
+@mcp.tool()
+def mcp_list_watchlist() -> str:
+    """List all watchlist entries."""
+    from hermes.portfolio.db import list_watchlist
+    items = list_watchlist()
+    entries = [{"code": w.code, "name": w.name} for w in items]
+    return json.dumps({"count": len(entries), "watchlist": entries}, ensure_ascii=False)
+
+
+@mcp.tool()
+def mcp_list_triggers(code: str = "") -> str:
+    """List active trigger conditions. Optionally filter by stock code.
+
+    Args:
+        code: Stock code to filter (empty = all triggers).
+    """
+    from hermes.portfolio.db import list_triggers
+    triggers = list_triggers(code)
+    items = [{"id": t.id, "code": t.code, "name": t.name, "type": t.type, "value": t.value, "description": t.description, "source": t.source} for t in triggers]
+    return json.dumps({"count": len(items), "triggers": items}, ensure_ascii=False)
+
+
+@mcp.tool()
+def mcp_get_report(code: str) -> str:
+    """Get the latest evaluation report for a stock.
+
+    Args:
+        code: Stock code, e.g. '002352'.
+    """
+    from hermes.portfolio.db import get_report
+    r = get_report(code)
+    if not r:
+        return json.dumps({"error": f"No report found for {code}"}, ensure_ascii=False)
+    return json.dumps({"code": r.code, "score": r.score, "created_at": r.created_at, "content": r.content}, ensure_ascii=False)

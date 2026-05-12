@@ -1,4 +1,9 @@
-"""EvalStrategy — fundamental + technical + catalyst evaluation producing a report and triggers."""
+"""EvalStrategy — factor-enhanced evaluation producing a report and triggers.
+
+Signal logic now uses composite_factor scores (6-factor weighted) instead of
+a single profit_yoy threshold. When factor data unavailable, falls back to
+simple profit_yoy logic but marks signal as "mechanical" not "factor-based".
+"""
 
 from hermes.data.quote import stock_quote
 from hermes.data.kline import stock_kline
@@ -13,7 +18,7 @@ from hermes.strategy.base import BUY, SELL, HOLD, WATCH
 
 
 def analyze(code: str) -> dict:
-    """Run full evaluation on a stock. Returns dict with signal, report (markdown), score, data."""
+    """Run full evaluation on a stock. Returns dict with signal, report, score, data."""
     quote = stock_quote(code)
     if "error" in quote:
         return {"signal": WATCH, "report": f"无法获取 {code} 行情数据", "score": 0, "data": {}}
@@ -43,71 +48,136 @@ def analyze(code: str) -> dict:
         "market_index": index,
     }
 
-    # Compute basic metrics for scoring
+    # Factor-based signal (primary)
+    signal = HOLD
+    score = 0
+    signal_source = "mechanical"
+
+    try:
+        from hermes.factors.composite import composite_factor
+        factor_result = composite_factor(code)
+        if "error" not in factor_result:
+            factor_score = factor_result.get("score", 0)
+            factor_signal = factor_result.get("signal", "hold")
+            # Scale factor score (0-10) to 0-50 range for report scoring
+            score = round(factor_score * 5, 0)
+            signal = factor_signal
+            signal_source = "factor-based"
+            # Add factor data to analysis
+            data["factor"] = factor_result
+    except Exception:
+        pass
+
+    # Mechanical fallback when factor data unavailable
+    if signal_source == "mechanical":
+        profit_yoy = quote.get("profit_yoy")
+        if profit_yoy is not None and profit_yoy > 15:
+            signal = BUY
+        elif profit_yoy is not None and profit_yoy < -20:
+            signal = SELL
+
+    # Build summary report
+    name = quote.get("name", "")
     price = quote.get("price", 0)
     pe = quote.get("pe_dynamic")
-    profit_yoy = quote.get("profit_yoy")
-    revenue_yoy = quote.get("revenue_yoy")
 
-    # Basic signal logic (placeholder — full analysis is done by the evaluate-stock skill via Claude)
-    signal = HOLD
-    if profit_yoy is not None and profit_yoy > 15:
-        signal = BUY
-    elif profit_yoy is not None and profit_yoy < -20:
-        signal = SELL
-
-    # Build summary report (detailed report generation is delegated to the skill/AI)
-    name = quote.get("name", "")
     report = f"# {name}（{code}）数据摘要\n\n"
-    report += f"当前价格: {price} | PE: {pe} | 净利润同比: {profit_yoy}% | 营收同比: {revenue_yoy}%\n"
-    report += f"\n建议信号: {signal}\n"
+    report += f"当前价格: {price} | PE: {pe} | 净利润同比: {quote.get('profit_yoy')}% | 营收同比: {quote.get('revenue_yoy')}%\n"
+    report += f"\n建议信号: {signal} (来源: {signal_source}) | 评分: {score}/50\n"
+
+    if data.get("factor"):
+        f = data["factor"]
+        report += f"\n因子评分: {f.get('score', 'N/A')}/10\n"
+        for name_key, sf in f.get("sub_factors", {}).items():
+            s = sf.get("score", "N/A")
+            c = sf.get("coverage_pct", 0)
+            report += f"  {name_key}: {s} (覆盖率{c}%)\n"
+
     report += "\n> 详细评估请使用 /evaluate-stock skill 或让AI基于以下数据生成完整报告。\n"
 
-    return {"signal": signal, "report": report, "score": 0, "data": data}
+    return {"signal": signal, "report": report, "score": score, "data": data}
 
 
 def get_triggers(code: str, analysis: dict) -> list[dict]:
-    """Generate trigger conditions from analysis data."""
+    """Generate trigger conditions from analysis data.
+    When factor data available, uses volatility/valuation for adaptive thresholds.
+    When factor unavailable, uses fixed mechanical thresholds.
+    """
     triggers = []
     quote = analysis.get("data", {}).get("quote", {})
     valuation = analysis.get("data", {}).get("valuation", {})
+    factor = analysis.get("data", {}).get("factor", {})
     price = quote.get("price", 0)
     name = quote.get("name", "")
 
     if not price:
         return triggers
 
-    # Stop loss: -10% from current price
+    # Adaptive stop-loss based on volatility factor
+    vol_score = None
+    if factor and "sub_factors" in factor:
+        vol = factor["sub_factors"].get("volatility", {})
+        vol_score = vol.get("score")
+
+    if vol_score is not None:
+        # Higher volatility → wider stop-loss (score 1-3: -15%, 4-6: -10%, 7-10: -7%)
+        if vol_score <= 3:
+            stop_pct = 0.85
+        elif vol_score <= 6:
+            stop_pct = 0.90
+        else:
+            stop_pct = 0.93
+        trigger_type = "price_stop_loss_adaptive"
+    else:
+        # Mechanical fallback: fixed -10%
+        stop_pct = 0.90
+        trigger_type = "price_stop_loss"
+
     triggers.append({
-        "code": code, "name": name,
-        "type": "price_stop_loss",
-        "value": round(price * 0.90, 2),
-        "description": f"止损价 {round(price * 0.90, 2)} 元（当前价 -10%）",
+        "code": code, "name": name, "source": "auto",
+        "type": trigger_type,
+        "value": round(price * stop_pct, 2),
+        "description": f"止损价 {round(price * stop_pct, 2)} 元（当前价 {price} 元，-{round((1-stop_pct)*100)}%）",
     })
 
-    # Stop profit: +20% from current price
+    # Adaptive stop-profit based on valuation percentile
+    price_pct = valuation.get("price_pct_in_range")
+    if price_pct is not None:
+        # Near 52w high (>80%) → tighter profit target (+10%)
+        # Near 52w low (<20%) → wider profit target (+25%)
+        if price_pct > 80:
+            profit_pct = 1.10
+        elif price_pct < 20:
+            profit_pct = 1.25
+        else:
+            profit_pct = 1.20
+        trigger_type = "price_stop_profit_adaptive"
+    else:
+        profit_pct = 1.20
+        trigger_type = "price_stop_profit"
+
     triggers.append({
-        "code": code, "name": name,
-        "type": "price_stop_profit",
-        "value": round(price * 1.20, 2),
-        "description": f"止盈价 {round(price * 1.20, 2)} 元（当前价 +20%）",
+        "code": code, "name": name, "source": "auto",
+        "type": trigger_type,
+        "value": round(price * profit_pct, 2),
+        "description": f"止盈价 {round(price * profit_pct, 2)} 元（当前价 {price} 元，+{round((profit_pct-1)*100)}%）",
     })
 
-    # PE high alert: if PE > 50
+    # PE high alert
     pe = quote.get("pe_dynamic")
-    if pe and pe > 0:
+    if pe is not None and pe > 0:
         triggers.append({
-            "code": code, "name": name,
+            "code": code, "name": name, "source": "auto",
             "type": "pe_high",
             "value": 50,
-            "description": f"PE超50预警（当前PE {pe}）",
+            "description": f"PE超50预警（当前PE {round(pe, 1)}）",
         })
 
-    # 52w low proximity: price within 5% of 52-week low
+    # 52w low proximity
     low_52w = valuation.get("price_52w_low")
     if low_52w and low_52w > 0 and price <= low_52w * 1.05:
         triggers.append({
-            "code": code, "name": name,
+            "code": code, "name": name, "source": "auto",
             "type": "near_52w_low",
             "value": round(low_52w * 1.05, 2),
             "description": f"接近52周最低价 {low_52w} 元",

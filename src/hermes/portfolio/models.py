@@ -31,6 +31,7 @@ class TriggerCondition:
     value: float = 0.0
     description: str = ""
     active: bool = True
+    source: str = "auto"
     created_at: str = ""
 
 

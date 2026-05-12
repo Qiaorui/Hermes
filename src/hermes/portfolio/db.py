@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS triggers (
     value REAL,
     description TEXT,
     active INTEGER DEFAULT 1,
+    source TEXT DEFAULT 'auto',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -51,6 +52,12 @@ def _get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
+    # Migration: add source column if missing (existing databases)
+    try:
+        conn.execute("SELECT source FROM triggers LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE triggers ADD COLUMN source TEXT DEFAULT 'auto'")
+        conn.commit()
     return conn
 
 
@@ -137,7 +144,7 @@ def list_watchlist() -> list[WatchItem]:
 
 def add_trigger(code: str, name: str, type: str, value: float, description: str = "") -> TriggerCondition:
     conn = _get_conn()
-    conn.execute("INSERT INTO triggers (code, name, type, value, description) VALUES (?, ?, ?, ?, ?)",
+    conn.execute("INSERT INTO triggers (code, name, type, value, description, source) VALUES (?, ?, ?, ?, ?, 'manual')",
                  (code, name, type, value, description))
     conn.commit()
     row = conn.execute("SELECT * FROM triggers WHERE code=? ORDER BY id DESC LIMIT 1", (code,)).fetchone()
@@ -164,15 +171,17 @@ def list_triggers(code: str = "") -> list[TriggerCondition]:
 
 
 def save_triggers(triggers: list[TriggerCondition]) -> None:
-    """Save a batch of triggers (replacing existing active triggers for same code)."""
+    """Save a batch of auto-generated triggers, replacing only existing auto triggers for same code.
+    Manual triggers (source='manual') are preserved.
+    """
     if not triggers:
         return
     code = triggers[0].code
     conn = _get_conn()
-    conn.execute("UPDATE triggers SET active=0 WHERE code=?", (code,))
+    conn.execute("UPDATE triggers SET active=0 WHERE code=? AND source='auto'", (code,))
     for t in triggers:
-        conn.execute("INSERT INTO triggers (code, name, type, value, description) VALUES (?, ?, ?, ?, ?)",
-                     (t.code, t.name, t.type, t.value, t.description))
+        conn.execute("INSERT INTO triggers (code, name, type, value, description, source) VALUES (?, ?, ?, ?, ?, ?)",
+                     (t.code, t.name, t.type, t.value, t.description, t.source or "auto"))
     conn.commit()
     conn.close()
 

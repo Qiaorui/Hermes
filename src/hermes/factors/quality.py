@@ -122,7 +122,8 @@ def quality_factor(code: str) -> dict:
     roe_values = []
     for i in range(min(len(inc_periods), len(bal_periods))):
         np = inc_periods[i].get("PARENT_NETPROFIT")
-        eq = bal_periods[i].get("PARENT_EQUITY") or bal_periods[i].get("TOTAL_EQUITY")
+        p = bal_periods[i].get("PARENT_EQUITY")
+        eq = p if p is not None else bal_periods[i].get("TOTAL_EQUITY")
         if np is not None and eq is not None and eq > 0:
             roe_values.append(np / eq * 100)
 
