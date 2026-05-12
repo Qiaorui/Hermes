@@ -197,5 +197,43 @@ def save_trigger_conditions(code: str, name: str, triggers_json: str) -> str:
     return json.dumps({"status": "saved", "code": code, "count": len(models)}, ensure_ascii=False)
 
 
+@mcp.tool()
+def mcp_factor_score(code: str, factors: str = "") -> str:
+    """Compute quantitative factor scores for a stock. Returns 0-10 scores per factor.
+
+    Args:
+        code: Stock code, e.g. '002352'.
+        factors: Comma-separated factor names (empty = all). Options: value,growth,quality,momentum,volatility,liquidity.
+    """
+    from hermes.factors import factor_score, ALL_FACTORS
+    names = [f.strip() for f in factors.split(",") if f.strip()] if factors else None
+    result = factor_score(code, names)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+def mcp_factor_composite(code: str, weights: str = "") -> str:
+    """Compute composite multi-factor score with configurable weights. Returns total score and signal.
+
+    Default weights: value=0.20, growth=0.20, quality=0.25, momentum=0.15, volatility=0.10, liquidity=0.10
+    Signal: score>=7→buy, >=5→hold, >=3→watch, <3→sell
+
+    Args:
+        code: Stock code, e.g. '002352'.
+        weights: Optional JSON dict of factor weights, e.g. '{"value":0.3,"growth":0.2,"quality":0.3}'.
+    """
+    from hermes.factors.composite import composite_factor, DEFAULT_WEIGHTS
+    import json as _json
+    if weights:
+        try:
+            w = _json.loads(weights)
+        except Exception:
+            w = DEFAULT_WEIGHTS
+    else:
+        w = None
+    result = composite_factor(code, w)
+    return json.dumps(result, ensure_ascii=False)
+
+
 if __name__ == "__main__":
     mcp.run()

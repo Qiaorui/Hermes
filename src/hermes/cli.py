@@ -10,6 +10,8 @@ from rich.layout import Layout
 from rich.text import Text
 from rich.bar import Bar
 from hermes.strategy.eval import analyze, get_triggers
+from hermes.factors import factor_score, ALL_FACTORS
+from hermes.factors.composite import composite_factor
 from hermes.portfolio.db import (
     add_holding, remove_holding, list_holdings, update_holding,
     add_watch, remove_watch, list_watchlist,
@@ -257,6 +259,57 @@ def screen(
     typer.echo(f"{'代码':<8} {'名称':<10} {'价格':<8} {'涨跌%':<7} {'PE':<8} {'净利同比%':<10} {'营收同比%':<10} {'行业'}")
     for s in stocks:
         typer.echo(f"{s['code']:<8} {s['name']:<10} {s['price']:<8} {s['change_pct']:<7} {s['pe']:<8} {s['profit_yoy_pct']:<10} {s['revenue_yoy_pct']:<10} {s['industry']}")
+
+
+@app.command()
+def factor(
+    code: str,
+    names: str = typer.Option("", "--factors", "-f", help="因子列表(逗号分隔,空=全部): value,growth,quality,momentum,volatility,liquidity"),
+    composite: bool = typer.Option(False, "--composite", "-c", help="同时输出综合因子评分"),
+):
+    """Compute quantitative factor scores for a stock."""
+    factor_names = [f.strip() for f in names.split(",") if f.strip()] if names else None
+    result = factor_score(code, factor_names)
+
+    if not result.get("factors"):
+        typer.echo(f"无法计算 {code} 的因子得分")
+        return
+
+    q = stock_quote(code)
+    stock_name = q.get("name", code) if "error" not in q else code
+
+    f_table = Table(title=f"因子评分 — {stock_name}({code})", show_lines=False, title_style="bold cyan")
+    f_table.add_column("因子", min_width=12)
+    f_table.add_column("得分", justify="right", min_width=6)
+    f_table.add_column("评级", justify="center", min_width=6)
+
+    for fname, fdata in result["factors"].items():
+        score = fdata.get("score", 0)
+        rating = "优秀" if score >= 7 else ("良好" if score >= 5 else ("一般" if score >= 3 else "较差"))
+        color = "green" if score >= 7 else ("cyan" if score >= 5 else ("yellow" if score >= 3 else "red"))
+        f_table.add_row(fname, Text(str(score), style=color), Text(rating, style=color))
+
+    console.print(f_table)
+
+    # Print key sub-factor details
+    for fname, fdata in result["factors"].items():
+        details = fdata.get("details", {})
+        if details:
+            key_items = [f"{k}={v}" for k, v in details.items() if v is not None and not k.endswith("_score")]
+            if key_items:
+                typer.echo(f"  {fname}: {', '.join(key_items)}")
+
+    if composite:
+        comp = composite_factor(code)
+        if "error" not in comp:
+            score = comp["score"]
+            signal = comp["signal"]
+            signal_icon = {"buy": "▲", "hold": "●", "watch": "◆", "sell": "▼"}.get(signal, "?")
+            signal_color = {"buy": "green", "hold": "cyan", "watch": "yellow", "sell": "red"}.get(signal, "white")
+            console.print(Panel(
+                Text(f"综合评分: {score}/10  信号: {signal_icon} {signal.upper()}", style=f"bold {signal_color}"),
+                title="综合因子", border_style=signal_color,
+            ))
 
 
 @app.command()
