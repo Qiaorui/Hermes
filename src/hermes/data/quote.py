@@ -3,6 +3,30 @@
 from hermes.api.eastmoney import em_get, parse_secid
 
 
+def _val(d: dict, key: str) -> float | int | None:
+    """Extract a value from API data, returning None if missing instead of 0."""
+    raw = d.get(key)
+    if raw is None or raw == "-":
+        return None
+    try:
+        v = float(raw)
+        return int(v) if v == int(v) else v
+    except (ValueError, TypeError):
+        return None
+
+
+def _fen(d: dict, key: str) -> float | None:
+    """Convert fen unit to yuan (÷100), return None if missing."""
+    v = _val(d, key)
+    return v / 100 if v is not None else None
+
+
+def _pct(d: dict, key: str) -> float | None:
+    """Convert 1/100-percent to percent (÷100), return None if missing."""
+    v = _val(d, key)
+    return v / 100 if v is not None else None
+
+
 def stock_quote(code: str) -> dict:
     """Get real-time stock quote. Returns dict with price, PE, PB, PS, market cap, YoY etc."""
     secid = parse_secid(code)
@@ -15,21 +39,21 @@ def stock_quote(code: str) -> dict:
     return {
         "code": d.get("f57", code),
         "name": d.get("f58", ""),
-        "price": d.get("f43", 0) / 100,
-        "high": d.get("f44", 0) / 100,
-        "low": d.get("f45", 0) / 100,
-        "open": d.get("f46", 0) / 100,
-        "volume": d.get("f47", 0),
-        "amount": d.get("f48", 0),
-        "turnover_rate": d.get("f55", 0),
-        "pe_dynamic": d.get("f162", 0) / 100,
-        "pe_static": d.get("f163", 0) / 100,
-        "pb": d.get("f23", 0) / 100 if d.get("f23") else None,
-        "ps": d.get("f167", 0) / 100,
-        "market_cap": d.get("f84", 0),
-        "total_shares": d.get("f116", 0),
-        "circulating_shares": d.get("f117", 0),
-        "revenue_yoy": d.get("f169", 0) / 100 if d.get("f169") else None,
-        "profit_yoy": d.get("f170", 0) / 100 if d.get("f170") else None,
+        "price": _fen(d, "f43"),
+        "high": _fen(d, "f44"),
+        "low": _fen(d, "f45"),
+        "open": _fen(d, "f46"),
+        "volume": _val(d, "f47"),
+        "amount": _val(d, "f48"),
+        "turnover_rate": _val(d, "f55"),
+        "pe_dynamic": _fen(d, "f162"),
+        "pe_static": _fen(d, "f163"),
+        "pb": _fen(d, "f23"),
+        "ps": _fen(d, "f167"),
+        "market_cap": _val(d, "f84"),
+        "total_shares": _val(d, "f116"),
+        "circulating_shares": _val(d, "f117"),
+        "revenue_yoy": _pct(d, "f169"),
+        "profit_yoy": _pct(d, "f170"),
         "industry": d.get("f100", ""),
     }

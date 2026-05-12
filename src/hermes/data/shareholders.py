@@ -1,6 +1,21 @@
 """Top shareholders and tradable shareholders."""
 
+from datetime import date
 from hermes.api.eastmoney import em_get, em_prefix
+
+
+def _report_dates() -> list[str]:
+    """Generate recent semi-annual report dates, newest first."""
+    today = date.today()
+    dates = []
+    year = today.year
+    for y in range(year, year - 3, -1):
+        # Annual reports (Dec 31) and semi-annual (Jun 30), newest first
+        if y < year or (y == year and today.month > 4):
+            dates.append(f"{y}-12-31")
+        if y < year or (y == year and today.month > 8):
+            dates.append(f"{y}-06-30")
+    return dates
 
 
 def stock_shareholders(code: str, top_n: int = 10) -> dict:
@@ -10,14 +25,14 @@ def stock_shareholders(code: str, top_n: int = 10) -> dict:
 
     shareholders = None
     tradable = None
-    for date in ["2025-12-31", "2024-12-31"]:
+    for date_str in _report_dates():
         if shareholders is None:
-            url1 = f"http://emweb.securities.eastmoney.com/PC_HSF10/ShareholderResearch/PageSDGD?code={prefix_code}&date={date}"
+            url1 = f"http://emweb.securities.eastmoney.com/PC_HSF10/ShareholderResearch/PageSDGD?code={prefix_code}&date={date_str}"
             d1 = em_get(url1)
             if d1 and d1.get("sdgd"):
                 shareholders = d1["sdgd"][:top_n]
         if tradable is None:
-            url2 = f"http://emweb.securities.eastmoney.com/PC_HSF10/ShareholderResearch/PageSDLTGD?code={prefix_code}&date={date}"
+            url2 = f"http://emweb.securities.eastmoney.com/PC_HSF10/ShareholderResearch/PageSDLTGD?code={prefix_code}&date={date_str}"
             d2 = em_get(url2)
             if d2 and d2.get("sdltgd"):
                 tradable = d2["sdltgd"][:top_n]
