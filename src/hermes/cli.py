@@ -15,6 +15,7 @@ from hermes.portfolio.db import (
     add_watch, remove_watch, list_watchlist,
     add_trigger, remove_trigger, list_triggers, save_triggers,
     save_report, get_report,
+    add_transaction, list_transactions,
 )
 from hermes.portfolio.models import TriggerCondition
 from hermes.data.quote import stock_quote
@@ -158,6 +159,12 @@ app.add_typer(trigger_app, name="trigger")
 
 
 @app.command()
+def patrol():
+    """Automated patrol: check all holdings/watchlist against triggers. Designed for cron use."""
+    portfolio_check()
+
+
+@app.command()
 def evaluate(code: str):
     """Evaluate a single stock. Runs full analysis, saves report and triggers."""
     typer.echo(f"正在评估 {code}...")
@@ -205,6 +212,11 @@ def screen(
     industry: str = typer.Option("", "--industry", "-i", help="行业筛选"),
     pe_max: float = typer.Option(0, "--pe-max", help="PE上限（0=不限）"),
     pe_min: float = typer.Option(0, "--pe-min", help="PE下限（0=不限）"),
+    pb_max: float = typer.Option(0, "--pb-max", help="PB上限（0=不限）"),
+    pb_min: float = typer.Option(0, "--pb-min", help="PB下限（0=不限）"),
+    market_cap_min: float = typer.Option(0, "--cap-min", help="市值下限(亿元, 0=不限)"),
+    market_cap_max: float = typer.Option(0, "--cap-max", help="市值上限(亿元, 0=不限)"),
+    turnover_min: float = typer.Option(0, "--turnover-min", help="换手率下限%(0=不限)"),
     profit_yoy_min: float = typer.Option(0, "--profit-yoy-min", help="净利润同比增长下限%"),
     revenue_yoy_min: float = typer.Option(0, "--revenue-yoy-min", help="营收同比增长下限%"),
     limit: int = typer.Option(20, "--limit", "-l", help="返回数量上限"),
@@ -214,10 +226,10 @@ def screen(
     """Screen stocks by criteria. Returns filtered ranked list."""
     from hermes.api.eastmoney import em_get, parse_secid
 
-    # Fetch A-share stock list
+    # Fetch A-share stock list (add f55 for turnover_rate)
     stocks = []
     for fs in ["m:1+t:2,m:0+t:6,m:0+t:80,m:1+t:23"]:
-        url = f"http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz={limit*3}&po=1&np=1&fltt=2&invt=2&fs={fs}&fields=f2,f3,f12,f14,f9,f20,f23,f115,f169,f170,f100"
+        url = f"http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz={limit*3}&po=1&np=1&fltt=2&invt=2&fs={fs}&fields=f2,f3,f12,f14,f9,f20,f23,f55,f115,f169,f170,f100"
         data = em_get(url)
         if data and data.get("data") and data["data"].get("diff"):
             for item in data["data"]["diff"]:
@@ -228,6 +240,7 @@ def screen(
                 pe = item.get("f9", "-")
                 market_cap = item.get("f20", "-")
                 pb = item.get("f23", "-")
+                turnover_rate = item.get("f55", "-")
                 profit_yoy_pct = item.get("f115", "-")
                 revenue_yoy_pct = item.get("f169", "-")
                 industry_name = item.get("f100", "")
@@ -243,6 +256,36 @@ def screen(
                         continue
                 except (ValueError, TypeError):
                     continue
+
+                # PB filter
+                if pb_max > 0 or pb_min > 0:
+                    try:
+                        pb_val = float(pb)
+                        if pb_max > 0 and pb_val > pb_max:
+                            continue
+                        if pb_min > 0 and pb_val < pb_min:
+                            continue
+                    except (ValueError, TypeError):
+                        continue
+
+                # Market cap filter (in 亿元)
+                if market_cap_min > 0 or market_cap_max > 0:
+                    try:
+                        cap_yi = float(market_cap) / 1e8
+                        if market_cap_min > 0 and cap_yi < market_cap_min:
+                            continue
+                        if market_cap_max > 0 and cap_yi > market_cap_max:
+                            continue
+                    except (ValueError, TypeError):
+                        continue
+
+                # Turnover rate filter
+                if turnover_min > 0:
+                    try:
+                        if float(turnover_rate) < turnover_min:
+                            continue
+                    except (ValueError, TypeError):
+                        continue
 
                 if profit_yoy_min > 0:
                     try:
@@ -263,8 +306,9 @@ def screen(
 
                 stocks.append({
                     "code": code, "name": name, "price": price,
-                    "change_pct": change_pct, "pe": pe,
+                    "change_pct": change_pct, "pe": pe, "pb": pb,
                     "market_cap_yi": round(float(market_cap) / 1e8, 1) if market_cap != "-" else 0,
+                    "turnover_rate": turnover_rate,
                     "profit_yoy_pct": profit_yoy_pct, "revenue_yoy_pct": revenue_yoy_pct,
                     "industry": industry_name,
                 })
@@ -291,8 +335,10 @@ def screen(
     s_table.add_column("价格", justify="right", min_width=8)
     s_table.add_column("涨跌%", justify="right", min_width=7)
     s_table.add_column("PE", justify="right", min_width=8)
+    s_table.add_column("PB", justify="right", min_width=6)
+    s_table.add_column("市值(亿)", justify="right", min_width=9)
+    s_table.add_column("换手%", justify="right", min_width=6)
     s_table.add_column("净利同比%", justify="right", min_width=10)
-    s_table.add_column("营收同比%", justify="right", min_width=10)
     s_table.add_column("行业", min_width=10)
 
     for s in stocks:
@@ -304,7 +350,9 @@ def screen(
         s_table.add_row(
             s["code"], s["name"], str(s["price"]),
             Text(str(chg), style=chg_color), str(s["pe"]),
-            str(s["profit_yoy_pct"]), str(s["revenue_yoy_pct"]), s["industry"],
+            str(s["pb"]), str(s["market_cap_yi"]),
+            str(s["turnover_rate"]),
+            str(s["profit_yoy_pct"]), s["industry"],
         )
 
     console.print(s_table)
@@ -427,6 +475,7 @@ def portfolio_add(
     name = q.get("name", code) if "error" not in q else code
 
     h = add_holding(code, name, cost, shares, buy_date)
+    add_transaction(code, name, "buy", cost, shares, f"买入 成本{cost}元 {shares}股")
     typer.echo(f"已添加持仓: {h.code} {h.name} 成本{h.cost_price}元 {h.shares}股 日期{h.buy_date}")
 
 
@@ -438,6 +487,201 @@ def portfolio_watch(code: str):
 
     w = add_watch(code, name)
     typer.echo(f"已添加关注: {w.code} {w.name}")
+
+
+@portfolio_app.command("log")
+def portfolio_log(
+    code: str = typer.Option("", "--code", "-c", help="股票代码（空=全部）"),
+    limit: int = typer.Option(30, "--limit", "-l", help="显示条数"),
+):
+    """Show transaction log (buy/sell history)."""
+    txns = list_transactions(code, limit)
+    if not txns:
+        typer.echo("暂无交易记录")
+        return
+
+    t_table = Table(title="交易记录", show_lines=False, title_style="bold green", expand=True)
+    t_table.add_column("ID", style="dim", min_width=3)
+    t_table.add_column("日期", min_width=12)
+    t_table.add_column("代码", style="cyan", min_width=8)
+    t_table.add_column("名称", min_width=10)
+    t_table.add_column("操作", justify="center", min_width=6)
+    t_table.add_column("价格", justify="right", min_width=8)
+    t_table.add_column("数量", justify="right", min_width=6)
+    t_table.add_column("金额", justify="right", min_width=10)
+    t_table.add_column("备注", min_width=20)
+
+    for t in txns:
+        action_color = "green" if t.action in ("buy", "add") else "red" if t.action in ("sell", "reduce") else "yellow"
+        t_table.add_row(
+            str(t.id), t.created_at[:10] if t.created_at else "", t.code, t.name,
+            Text(t.action, style=action_color), str(t.price), str(t.shares),
+            str(round(t.amount, 2)), t.note,
+        )
+
+    console.print(t_table)
+
+
+@portfolio_app.command("performance")
+def portfolio_performance():
+    """Show portfolio performance vs benchmark (CSI 300)."""
+    holdings = list_holdings()
+    if not holdings:
+        typer.echo("暂无持仓")
+        return
+
+    from hermes.data.kline import stock_kline
+
+    p_table = Table(title="持仓收益 vs 基准", show_lines=False, title_style="bold cyan", expand=True)
+    p_table.add_column("代码", style="cyan", min_width=8)
+    p_table.add_column("名称", min_width=10)
+    p_table.add_column("买入日", min_width=12)
+    p_table.add_column("买入价", justify="right", min_width=8)
+    p_table.add_column("现价", justify="right", min_width=8)
+    p_table.add_column("持仓收益%", justify="right", min_width=10)
+    p_table.add_column("同期基准%", justify="right", min_width=10)
+    p_table.add_column("超额%", justify="right", min_width=10)
+
+    # CSI 300 kline for benchmark
+    bench_kline = stock_kline("000300")
+
+    total_pnl_pct = 0.0
+    total_bench_pct = 0.0
+    total_weight = 0.0
+
+    for h in holdings:
+        q = stock_quote(h.code)
+        if "error" in q:
+            p_table.add_row(h.code, h.name, h.buy_date, str(h.cost_price), "-", "-", "-", "-")
+            continue
+        current_price = q.get("price", 0)
+        holding_pnl = round((current_price - h.cost_price) / h.cost_price * 100, 2) if h.cost_price > 0 else 0
+
+        # Find benchmark price at buy_date
+        bench_return = 0.0
+        if bench_kline and "error" not in bench_kline:
+            klines = bench_kline.get("klines", [])
+            buy_date_str = h.buy_date
+            # Find closest kline date before buy_date
+            buy_idx = None
+            for i, k in enumerate(klines):
+                if k.get("date", "") <= buy_date_str:
+                    buy_idx = i
+            latest_bench = klines[-1].get("close", 0) if klines else 0
+            if buy_idx is not None and latest_bench > 0:
+                bench_at_buy = klines[buy_idx].get("close", 0)
+                if bench_at_buy > 0:
+                    bench_return = round((latest_bench - bench_at_buy) / bench_at_buy * 100, 2)
+
+        excess = round(holding_pnl - bench_return, 2)
+        weight = h.cost_price * h.shares
+        total_pnl_pct += holding_pnl * weight
+        total_bench_pct += bench_return * weight
+        total_weight += weight
+
+        c_h = "green" if holding_pnl >= 0 else "red"
+        c_b = "green" if bench_return >= 0 else "red"
+        c_e = "green" if excess >= 0 else "red"
+        p_table.add_row(
+            h.code, h.name, h.buy_date, str(h.cost_price), str(current_price),
+            Text(f"{holding_pnl:+}%", style=c_h), Text(f"{bench_return:+}%", style=c_b), Text(f"{excess:+}%", style=c_e),
+        )
+
+    console.print(p_table)
+
+    if total_weight > 0:
+        weighted_pnl = round(total_pnl_pct / total_weight, 2)
+        weighted_bench = round(total_bench_pct / total_weight, 2)
+        weighted_excess = round(weighted_pnl - weighted_bench, 2)
+        typer.echo(f"组合加权收益: {weighted_pnl:+}% | 基准收益: {weighted_bench:+}% | 超额收益: {weighted_excess:+}%")
+
+
+@portfolio_app.command("dividend")
+def portfolio_dividend():
+    """Show dividend income summary for all holdings."""
+    holdings = list_holdings()
+    if not holdings:
+        typer.echo("暂无持仓")
+        return
+
+    d_table = Table(title="分红收益汇总", show_lines=False, title_style="bold green", expand=True)
+    d_table.add_column("代码", style="cyan", min_width=8)
+    d_table.add_column("名称", min_width=10)
+    d_table.add_column("持股", justify="right", min_width=6)
+    d_table.add_column("最新DPS(元)", justify="right", min_width=10)
+    d_table.add_column("分红收益(元)", justify="right", min_width=12)
+    d_table.add_column("股息率%", justify="right", min_width=8)
+    d_table.add_column("连续年份", justify="right", min_width=8)
+
+    total_dividend = 0.0
+    for h in holdings:
+        from hermes.data.dividend import stock_dividend
+        div = stock_dividend(h.code)
+        if "error" in div:
+            d_table.add_row(h.code, h.name, str(h.shares), "-", "-", "-", "-")
+            continue
+        dps = div.get("latest_dps") or 0
+        div_income = round(dps * h.shares, 2)
+        total_dividend += div_income
+        yield_pct = div.get("dividend_yield") or 0
+        consecutive = div.get("consecutive_years") or 0
+        d_table.add_row(h.code, h.name, str(h.shares), str(dps), str(div_income), str(yield_pct), str(consecutive))
+
+    console.print(d_table)
+    typer.echo(f"预计年度分红收益合计: {round(total_dividend, 2)}元 ({round(total_dividend/10000, 2)}万)")
+
+
+@portfolio_app.command("concentration")
+def portfolio_concentration():
+    """Show portfolio industry concentration analysis."""
+    holdings = list_holdings()
+    if not holdings:
+        typer.echo("暂无持仓")
+        return
+
+    # Group by industry
+    ind_map: dict[str, list] = {}
+    for h in holdings:
+        q = stock_quote(h.code)
+        ind = q.get("industry", "未知") if "error" not in q else "未知"
+        mv = q.get("price", 0) * h.shares if "error" not in q else 0
+        ind_map.setdefault(ind, []).append({"code": h.code, "name": h.name, "mv": mv})
+
+    total_mv = sum(item["mv"] for items in ind_map.values() for item in items)
+
+    c_table = Table(title="行业集中度", show_lines=False, title_style="bold cyan", expand=True)
+    c_table.add_column("行业", min_width=10)
+    c_table.add_column("持仓数", justify="right", min_width=6)
+    c_table.add_column("市值(万)", justify="right", min_width=10)
+    c_table.add_column("占比%", justify="right", min_width=8)
+    c_table.add_column("股票", min_width=20)
+
+    # Sort by market value descending
+    sorted_inds = sorted(ind_map.items(), key=lambda x: sum(i["mv"] for i in x[1]), reverse=True)
+
+    for ind, items in sorted_inds:
+        ind_mv = sum(i["mv"] for i in items)
+        pct = round(ind_mv / total_mv * 100, 1) if total_mv > 0 else 0
+        stocks_str = ", ".join(f"{i['name']}" for i in items)
+        c_table.add_row(ind, str(len(items)), str(round(ind_mv / 10000, 2)), Text(f"{pct}%", style="bold" if pct > 30 else ""), stocks_str)
+
+    console.print(c_table)
+
+    # Warning if any industry > 30%
+    for ind, items in sorted_inds:
+        ind_mv = sum(i["mv"] for i in items)
+        pct = round(ind_mv / total_mv * 100, 1) if total_mv > 0 else 0
+        if pct > 30:
+            typer.echo(f"⚠ 行业 '{ind}' 占比 {pct}%，超过30%阈值，建议分散配置")
+
+
+@portfolio_app.command("unwatch")
+def portfolio_unwatch(code: str):
+    """Remove a stock from watchlist."""
+    if remove_watch(code):
+        typer.echo(f"已移除关注: {code}")
+    else:
+        typer.echo(f"关注列表中未找到 {code}")
 
 
 @portfolio_app.command("list")
@@ -516,6 +760,7 @@ def portfolio_remove(id: int):
     h = get_holding(id)
     if h:
         remove_holding(id)
+        add_transaction(h.code, h.name, "sell", 0, h.shares, f"清仓 #{id} 成本{h.cost_price}元")
         typer.echo(f"已删除持仓 #{id}: {h.code} {h.name}")
     else:
         typer.echo(f"持仓 #{id} 不存在")
@@ -553,11 +798,30 @@ def portfolio_check():
             elif t.type == "price_stop_profit" and current_price >= t.value:
                 notify_trigger(code, name, "止盈", t.value, f"当前价 {current_price} >= 止盈价 {t.value}")
                 triggered = True
+            elif t.type == "price_stop_loss_adaptive" and current_price <= t.value:
+                notify_trigger(code, name, "动态止损", t.value, f"当前价 {current_price} <= 动态止损线 {t.value}")
+                triggered = True
+            elif t.type == "price_stop_profit_adaptive" and current_price >= t.value:
+                notify_trigger(code, name, "动态止盈", t.value, f"当前价 {current_price} >= 动态止盈线 {t.value}")
+                triggered = True
             elif t.type == "pe_high":
                 pe = q.get("pe_dynamic")
                 if pe and pe >= t.value:
                     notify_trigger(code, name, "PE预警", t.value, f"当前PE {pe} >= 预警值 {t.value}")
                     triggered = True
+            elif t.type == "near_52w_low" and current_price <= t.value:
+                notify_trigger(code, name, "接近52周低点", t.value, f"当前价 {current_price} <= 52周低点线 {t.value}")
+                triggered = True
+            elif t.type == "fund_flow_negative":
+                from hermes.data.fund_flow import stock_fund_flow
+                ff = stock_fund_flow(code)
+                if "error" not in ff:
+                    items = ff.get("fund_flow", [])
+                    if items:
+                        latest_main_net = items[0].get("main_net_inflow", 0)
+                        if latest_main_net is not None and latest_main_net < t.value:
+                            notify_trigger(code, name, "资金流出", t.value, f"主力净流入 {latest_main_net}万 < 阈值 {t.value}万")
+                            triggered = True
 
         if not triggered:
             signal = "hold"
@@ -571,6 +835,53 @@ def portfolio_check():
         signals.append({"code": code, "name": name, "price": current_price, "triggered": triggered})
 
     typer.echo("\n巡检完成")
+
+
+# ─── Config commands ───
+
+config_app = typer.Typer(help="Configuration management")
+app.add_typer(config_app, name="config")
+
+
+@config_app.command("show")
+def config_show():
+    """Show current configuration."""
+    from hermes.config import load_config
+    cfg = load_config()
+    console.print(Panel(
+        json.dumps(cfg, ensure_ascii=False, indent=2),
+        title="Hermes 配置", border_style="cyan",
+    ))
+
+
+@config_app.command("set")
+def config_set(
+    key: str = typer.Option(..., "--key", "-k", help="配置键，如 factor_weights.value"),
+    value: str = typer.Option(..., "--value", "-v", help="配置值"),
+):
+    """Set a configuration value. Use dot notation for nested keys (e.g. factor_weights.value)."""
+    from hermes.config import load_config, save_config
+
+    cfg = load_config()
+    keys = key.split(".")
+    target = cfg
+    for k in keys[:-1]:
+        if k not in target or not isinstance(target[k], dict):
+            typer.echo(f"配置路径 {key} 不存在")
+            return
+        target = target[k]
+
+    # Try numeric conversion
+    try:
+        parsed = float(value)
+        if parsed == int(parsed):
+            parsed = int(parsed)
+    except ValueError:
+        parsed = value
+
+    target[keys[-1]] = parsed
+    save_config(cfg)
+    typer.echo(f"已设置 {key} = {parsed}")
 
 
 # ─── Trigger commands ───

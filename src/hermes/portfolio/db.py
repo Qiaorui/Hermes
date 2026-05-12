@@ -2,7 +2,7 @@
 
 import sqlite3
 from pathlib import Path
-from hermes.portfolio.models import Holding, WatchItem, TriggerCondition, Report
+from hermes.portfolio.models import Holding, WatchItem, TriggerCondition, Report, Transaction
 
 from hermes.config import CONFIG_DIR
 
@@ -43,6 +43,18 @@ CREATE TABLE IF NOT EXISTS reports (
     code TEXT NOT NULL,
     content TEXT NOT NULL,
     score INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL,
+    name TEXT,
+    action TEXT NOT NULL,
+    price REAL NOT NULL,
+    shares INTEGER NOT NULL,
+    amount REAL NOT NULL,
+    note TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 """
@@ -210,3 +222,24 @@ def get_report(code: str) -> Report | None:
     row = conn.execute("SELECT * FROM reports WHERE code=? ORDER BY id DESC LIMIT 1", (code,)).fetchone()
     conn.close()
     return Report(**dict(row)) if row else None
+
+
+def add_transaction(code: str, name: str, action: str, price: float, shares: int, note: str = "") -> Transaction:
+    conn = _get_conn()
+    amount = round(price * shares, 2)
+    conn.execute("INSERT INTO transactions (code, name, action, price, shares, amount, note) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                 (code, name, action, price, shares, amount, note))
+    conn.commit()
+    row = conn.execute("SELECT * FROM transactions ORDER BY id DESC LIMIT 1").fetchone()
+    conn.close()
+    return Transaction(**dict(row))
+
+
+def list_transactions(code: str = "", limit: int = 50) -> list[Transaction]:
+    conn = _get_conn()
+    if code:
+        rows = conn.execute("SELECT * FROM transactions WHERE code=? ORDER BY id DESC LIMIT ?", (code, limit)).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM transactions ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    conn.close()
+    return [Transaction(**dict(r)) for r in rows]

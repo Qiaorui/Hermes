@@ -11,11 +11,12 @@ Report sections:
   3.6. Analyst consensus (ratings, EPS forecast, institutional participation)
   4. Catalysts (industry, announcements)
   5. Risk assessment
-  6. Peer comparison
+  6. Peer comparison (market cap, PE, PB, YoY growth)
   7. Unlock schedule
   8. Market environment
-  9. Macro indicators
-  10. Action recommendation
+  9. Macro indicators (PMI, CPI, GDP, LPR, M2)
+  10. Key dates (earnings disclosure, dividend schedule)
+  11. Action recommendation
 """
 
 from hermes.data.quote import stock_quote
@@ -32,6 +33,8 @@ from hermes.data.industry_chain import industry_chain
 from hermes.data.macro import macro_indicators
 from hermes.data.analyst import stock_analyst
 from hermes.data.northbound import northbound_flow
+from hermes.data.events import corporate_events
+from hermes.data.dragon_tiger import dragon_tiger_list
 from hermes.strategy.base import BUY, SELL, HOLD, WATCH
 
 
@@ -128,6 +131,8 @@ def analyze(code: str) -> dict:
     macro = macro_indicators()
     analyst_data = stock_analyst(code)
     northbound = northbound_flow(30)
+    events = corporate_events(code)
+    dragon_tiger = dragon_tiger_list()
 
     data = {
         "quote": quote,
@@ -146,6 +151,8 @@ def analyze(code: str) -> dict:
         "macro": macro,
         "analyst": analyst_data,
         "northbound": northbound,
+        "events": events,
+        "dragon_tiger": dragon_tiger,
     }
 
     # Factor-based signal (primary)
@@ -197,24 +204,53 @@ def analyze(code: str) -> dict:
     report += "| 项目 | 数据 | 评价 |\n|------|------|------|\n"
     rev = latest_inc.get("TOTAL_OPERATE_INCOME")
     np_val = latest_inc.get("PARENT_NETPROFIT")
+    deduct_np = latest_inc.get("DEDUCT_PARENT_NETPROFIT")
     np_ratio = latest_inc.get("PARENT_NETPROFIT_RATIO")
+    op_profit_ratio = latest_inc.get("OPERATE_PROFIT_RATIO")
+    # 毛利率 = 营业利润率 / 营收占比 ≈ gross margin proxy (not directly available, use 营业利润率)
+    gross_margin = latest_inc.get("TOI_RATIO")  # 营业总收入占比 ≈ gross margin
+    # 三费占比
+    sale_exp = latest_inc.get("SALE_EXPENSE")
+    manage_exp = latest_inc.get("MANAGE_EXPENSE")
+    finance_exp = latest_inc.get("FINANCE_EXPENSE")
+    three_exp_total = None
+    three_exp_ratio = None
+    if all(v is not None for v in [sale_exp, manage_exp, finance_exp, rev]):
+        three_exp_total = sale_exp + manage_exp + finance_exp
+        three_exp_ratio = round(three_exp_total / rev * 100, 2) if rev > 0 else None
     debt_ratio = latest_bal.get("DEBT_ASSET_RATIO")
     ocf = latest_cf.get("NETCASH_OPERATE")
+    # ROIC = 净利润 / (总资产 - 流动负债+非流动负债无关) → simplified: 净利润/总资产
+    total_assets = latest_bal.get("TOTAL_ASSETS")
+    roic = round(np_val / total_assets * 100, 2) if np_val is not None and total_assets is not None and total_assets > 0 else None
 
     report += f"| 营收(最新) | {_yi(rev)} | {_pct(revenue_yoy)} |\n"
     report += f"| 净利润(最新) | {_yi(np_val)} | {_pct(profit_yoy)} |\n"
+    report += f"| 扣非净利润 | {_yi(deduct_np)} | {'与净利匹配' if deduct_np is not None and np_val is not None and abs(deduct_np - np_val) < np_val * 0.1 else '扣非偏低' if deduct_np is not None and np_val is not None else 'N/A'} |\n"
     report += f"| 净利率 | {_pct(np_ratio)} | {'良好' if np_ratio is not None and np_ratio > 10 else '偏低' if np_ratio is not None and np_ratio < 5 else 'N/A'} |\n"
+    report += f"| 毛利率(营业利润率) | {_pct(op_profit_ratio)} | {'高毛利' if op_profit_ratio is not None and op_profit_ratio > 20 else '中等' if op_profit_ratio is not None else 'N/A'} |\n"
+    report += f"| 三费占比 | {_pct(three_exp_ratio)} | {'费用偏高' if three_exp_ratio is not None and three_exp_ratio > 30 else '费用可控' if three_exp_ratio is not None else 'N/A'} |\n"
+    report += f"| ROIC | {_pct(roic)} | {'优秀' if roic is not None and roic > 15 else '一般' if roic is not None else 'N/A'} |\n"
     report += f"| 经营现金流 | {_yi(ocf)} | {'健康' if ocf is not None and np_val is not None and ocf > np_val else '偏弱' if ocf is not None and np_val is not None and ocf < np_val * 0.5 else 'N/A'} |\n"
     report += f"| 资产负债率 | {_pct(debt_ratio)} | {'低杠杆' if debt_ratio is not None and debt_ratio < 40 else '中等' if debt_ratio is not None and debt_ratio < 60 else '高杠杆'} |\n"
+    # 分红可持续性: payout ratio from dividend data
+    payout_ratio = dividend.get("payout_ratio") if "error" not in dividend else None
+    payout_eval = '可持续' if payout_ratio is not None and payout_ratio < 60 else '偏高' if payout_ratio is not None and payout_ratio >= 60 else 'N/A'
+    report += f"| 派息比率 | {_pct(payout_ratio)} | {payout_eval} |\n"
 
     # Financial trend table
     if len(inc_periods) >= 2:
         report += "\n**近4期财务指标趋势**\n\n"
-        report += "| 报告期 | 营收(亿) | 净利润(亿) | 净利率% | 营收增速% | 净利增速% |\n|--------|---------|----------|--------|---------|---------|\n"
+        report += "| 报告期 | 营收(亿) | 净利润(亿) | 扣非净利润(亿) | 净利率% | 三费占比% | 营收增速% | 净利增速% |\n|--------|---------|----------|-------------|--------|---------|---------|---------|\n"
         for i, p in enumerate(inc_periods[:4]):
             r = p.get("TOTAL_OPERATE_INCOME")
             n = p.get("PARENT_NETPROFIT")
+            dn = p.get("DEDUCT_PARENT_NETPROFIT")
             mr = p.get("PARENT_NETPROFIT_RATIO")
+            se = p.get("SALE_EXPENSE")
+            me = p.get("MANAGE_EXPENSE")
+            fe = p.get("FINANCE_EXPENSE")
+            three_r = round((se + me + fe) / r * 100, 2) if all(v is not None for v in [se, me, fe, r]) and r > 0 else None
             # Compute YoY from consecutive periods (current vs previous)
             r_prev = inc_periods[i+1].get("TOTAL_OPERATE_INCOME") if i+1 < len(inc_periods) else None
             n_prev = inc_periods[i+1].get("PARENT_NETPROFIT") if i+1 < len(inc_periods) else None
@@ -223,7 +259,7 @@ def analyze(code: str) -> dict:
             period = p.get("REPORT_DATE", p.get("REPORT_DATE_NAME", "N/A"))
             if isinstance(period, str):
                 period = period[:10]
-            report += f"| {period} | {_yi(r)} | {_yi(n)} | {_pct(mr)} | {_pct(ry)} | {_pct(py)} |\n"
+            report += f"| {period} | {_yi(r)} | {_yi(n)} | {_yi(dn)} | {_pct(mr)} | {_pct(three_r)} | {_pct(ry)} | {_pct(py)} |\n"
 
     # Shareholders
     sh_data = shareholders if "error" not in shareholders else {}
@@ -248,6 +284,13 @@ def analyze(code: str) -> dict:
     report += f"| 价格vs MA5 | {_pct(val.get('price_vs_ma5'))} | — |\n"
     report += f"| 价格vs MA20 | {_pct(val.get('price_vs_ma20'))} | — |\n"
 
+    # 涨停/跌停统计 from kline
+    klines = kline.get("klines", []) if "error" not in kline else []
+    limit_up_days = [k for k in klines if k.get("change_pct") is not None and k["change_pct"] >= 9.9]
+    limit_down_days = [k for k in klines if k.get("change_pct") is not None and k["change_pct"] <= -9.9]
+    report += f"| 近期涨停 | {len(limit_up_days)}次 | {'活跃' if len(limit_up_days) > 0 else '无'} |\n"
+    report += f"| 近期跌停 | {len(limit_down_days)}次 | {'风险' if len(limit_down_days) > 0 else '无'} |\n"
+
     # Fund flow
     ff = fund_flow if "error" not in fund_flow else {}
     ff_list = ff.get("fund_flow", [])
@@ -257,6 +300,23 @@ def analyze(code: str) -> dict:
         main_net = latest_ff.get("main_net_inflow")
         main_pct = latest_ff.get("main_pct")
         report += f"| 资金流向 | 主力{_wan(main_net)}{_flow_dir(main_net)} | {'主力做多' if main_net is not None and main_net > 0 else '主力做空' if main_net is not None and main_net < 0 else 'N/A'} |\n"
+
+    # 北向资金 (from northbound data)
+    nb_data = northbound if "error" not in northbound else {}
+    nb_items = nb_data.get("items", [])
+    if nb_items:
+        latest_nb = nb_items[0]
+        nb_net = latest_nb.get("net_flow")
+        report += f"| 北向资金 | 最新{_wan(nb_net)}{_flow_dir(nb_net)} | {'北向流入' if nb_net is not None and nb_net > 0 else '北向流出' if nb_net is not None else 'N/A'} |\n"
+
+    # 龙虎榜 — check if this stock appeared on recent dragon-tiger list
+    dt_data = dragon_tiger if "error" not in dragon_tiger else {}
+    dt_entries = dt_data.get("entries", [])
+    dt_stock = [e for e in dt_entries if e.get("code") == code]
+    if dt_stock:
+        e = dt_stock[0]
+        dt_net = e.get("net_amount")
+        report += f"| 龙虎榜 | {_wan(dt_net)}净额 ({e.get('reason', 'N/A')}) | {'游资做多' if dt_net is not None and dt_net > 0 else '游资做空'} |\n"
 
     # ── 三、量化因子评分 ──
     report += "\n### 三、量化因子评分\n\n"
@@ -325,10 +385,26 @@ def analyze(code: str) -> dict:
     report += "\n### 四、题材与催化剂\n\n"
     report += "| 项目 | 详情 | 评价 |\n|------|------|------|\n"
     report += f"| 所属行业 | {industry} | — |\n"
+    # 核心题材 = industry chain complementary + downstream keywords
+    cp_downstream = ch.get("chain_position", {}).get("downstream", [])
+    cp_complementary = ch.get("chain_position", {}).get("complementary", [])
+    themes = ", ".join(cp_downstream + cp_complementary) if (cp_downstream or cp_complementary) else industry
+    report += f"| 核心题材 | {themes} | — |\n"
     ann_items = announcements.get("announcements", []) if "error" not in announcements else []
-    recent_ann = ann_items[:3] if ann_items else []
+    recent_ann = ann_items[:5] if ann_items else []
+    # 近期催化 = recent key announcements (合同/投资/增持/回购)
+    catalyst_anns = []
+    for a in recent_ann:
+        title = a.get("title", "")
+        if any(kw in title for kw in ["合同", "投资", "增持", "回购", "中标", "业绩", "分红"]):
+            catalyst_anns.append(a)
+    if catalyst_anns:
+        for a in catalyst_anns[:3]:
+            report += f"| 近期催化 | {a.get('title', 'N/A')} ({a.get('date', 'N/A')}) | — |\n"
+    else:
+        report += "| 近期催化 | 无明显催化事件 | — |\n"
     if recent_ann:
-        for a in recent_ann:
+        for a in recent_ann[:3]:
             report += f"| 近期公告 | {a.get('title', 'N/A')} ({a.get('date', 'N/A')}) | — |\n"
     else:
         report += "| 近期公告 | N/A | — |\n"
@@ -347,6 +423,19 @@ def analyze(code: str) -> dict:
     report += f"| 限售解禁压力 | 近期解禁 | {unlock_risk} |\n"
     debt_risk = "高" if debt_ratio is not None and debt_ratio > 70 else "中" if debt_ratio is not None and debt_ratio > 50 else "低" if debt_ratio is not None else "N/A"
     report += f"| 负债风险 | 资产负债率 {_pct(debt_ratio)} | {debt_risk} |\n"
+    # 大股东减持风险
+    def _is_reducing(s):
+        v = s.get("change_ratio_pct")
+        try:
+            return float(v) < -1
+        except (ValueError, TypeError):
+            return False
+    major_reduce = "高" if any(_is_reducing(s) for s in top10[:5]) else "低" if top10 else "N/A"
+    report += f"| 大股东减持 | 前十大股东减持变动 | {major_reduce} |\n"
+    # 审计意见 (from announcements)
+    audit_anns = [a for a in ann_items if any(kw in a.get("title", "") for kw in ["审计", "强调事项", "非标"])] if ann_items else []
+    audit_risk = "高" if audit_anns else "低"
+    report += f"| 审计/合规 | {'有非标/强调事项' if audit_anns else '未见异常'} | {audit_risk} |\n"
 
     # ── 六、同行对比 ──
     report += "\n### 六、同行对比\n\n"
@@ -359,7 +448,13 @@ def analyze(code: str) -> dict:
         our_cap = quote.get("market_cap")
         peer_caps = [_yi(p.get("market_cap")) for p in top_peers]
         report += f"| 市值 | {_yi(our_cap)} | {peer_caps[0]} | {peer_caps[1] if len(peer_caps) > 1 else 'N/A'} | {peer_caps[2] if len(peer_caps) > 2 else 'N/A'} |\n"
+        our_pb = quote.get("pb")
         report += f"| PE | {_num(pe)} | {_num(top_peers[0].get('pe'))} | {_num(top_peers[1].get('pe')) if len(top_peers) > 1 else 'N/A'} | {_num(top_peers[2].get('pe')) if len(top_peers) > 2 else 'N/A'} |\n"
+        report += f"| PB | {_num(our_pb)} | {_num(top_peers[0].get('pb'))} | {_num(top_peers[1].get('pb')) if len(top_peers) > 1 else 'N/A'} | {_num(top_peers[2].get('pb')) if len(top_peers) > 2 else 'N/A'} |\n"
+        our_profit_yoy = quote.get("profit_yoy")
+        our_revenue_yoy = quote.get("revenue_yoy")
+        report += f"| 净利润同比% | {_num(our_profit_yoy, suffix='%')} | {_num(top_peers[0].get('profit_yoy'), suffix='%')} | {_num(top_peers[1].get('profit_yoy'), suffix='%') if len(top_peers) > 1 else 'N/A'} | {_num(top_peers[2].get('profit_yoy'), suffix='%') if len(top_peers) > 2 else 'N/A'} |\n"
+        report += f"| 营收同比% | {_num(our_revenue_yoy, suffix='%')} | {_num(top_peers[0].get('revenue_yoy'), suffix='%')} | {_num(top_peers[1].get('revenue_yoy'), suffix='%') if len(top_peers) > 1 else 'N/A'} | {_num(top_peers[2].get('revenue_yoy'), suffix='%') if len(top_peers) > 2 else 'N/A'} |\n"
     else:
         report += "同行业对比数据暂不可用。\n"
 
@@ -386,6 +481,25 @@ def analyze(code: str) -> dict:
         else:
             report += f"| {label} | N/A | — |\n"
 
+    # 市场情绪综合判断
+    sh_chg = idx.get("shanghai", {}).get("latest_change_pct") if idx.get("shanghai") else None
+    sz_chg = idx.get("shenzhen", {}).get("latest_change_pct") if idx.get("shenzhen") else None
+    avg_chg = round((sh_chg + sz_chg) / 2, 2) if sh_chg is not None and sz_chg is not None else None
+    overall_mood = "偏乐观" if avg_chg is not None and avg_chg > 2 else "偏悲观" if avg_chg is not None and avg_chg < -2 else "中性震荡"
+    report += f"| 市场情绪 | {_pct(avg_chg)} | {overall_mood} |\n"
+
+    # 个股与大盘相关性 (从kline计算)
+    if klines and idx:
+        stock_changes = [k.get("change_pct") for k in klines[-30:] if k.get("change_pct") is not None]
+        idx_klines_data = idx.get("shanghai", {}).get("klines", [])
+        idx_changes = [k.get("change_pct") for k in idx_klines_data[-30:] if k.get("change_pct") is not None]
+        if len(stock_changes) >= 10 and len(idx_changes) >= 10:
+            # Simple correlation: count days both move in same direction
+            min_len = min(len(stock_changes), len(idx_changes))
+            same_dir = sum(1 for i in range(min_len) if (stock_changes[i] > 0 and idx_changes[i] > 0) or (stock_changes[i] < 0 and idx_changes[i] < 0))
+            corr_label = "强相关" if same_dir / min_len > 0.7 else "弱相关" if same_dir / min_len < 0.4 else "中等相关"
+            report += f"| 个股与大盘 | 同向{same_dir}/{min_len}天 | {corr_label} |\n"
+
     # ── 九、宏观环境 ──
     report += "\n### 九、宏观环境\n\n"
     m = macro if "error" not in macro else {}
@@ -407,7 +521,21 @@ def analyze(code: str) -> dict:
     report += f"| M2增速 | {_pct(m2_val)} | — |\n"
 
     # ── 十、操作建议 ──
-    report += "\n### 十、操作建议\n\n"
+    report += "\n### 十、重要日期提醒\n\n"
+    evt = data.get("events", {})
+    earnings = evt.get("earnings")
+    div_schedule = evt.get("dividend")
+    if earnings:
+        report += f"| 事项 | 日期 | 详情 |\n|------|------|------|\n"
+        report += f"| 业绩披露 | {earnings.get('earnings_date', 'N/A')} | {earnings.get('quarter', 'N/A')} {earnings.get('earnings_period', 'N/A')} |\n"
+        if earnings.get("actual_date"):
+            report += f"| 实际披露 | {earnings.get('actual_date', 'N/A')} | 已披露 |\n"
+    else:
+        report += "业绩披露日期暂不可用。\n"
+    if div_schedule:
+        report += f"| 分红预案 | {div_schedule.get('dividend_year', 'N/A')}年 | {div_schedule.get('dividend_plan', 'N/A')} DPS={div_schedule.get('dividend_dps', 'N/A')}元 进度={div_schedule.get('dividend_progress', 'N/A')} |\n"
+
+    report += "\n### 十一、操作建议\n\n"
     report += f"- **综合评分**: {score}/50 ({signal.upper()}, 来源: {signal_source})\n"
 
     f_data = data.get("factor", {})
@@ -457,16 +585,7 @@ def analyze(code: str) -> dict:
         div_years = dividend.get("consecutive_years")
         div_dps = dividend.get("latest_dps")
         if div_dps is not None and div_dps > 0:
-            report += f"\n**分红摘要**: 每股分红{_num(div_dps, '元')} | 股息率{_pct(div_yield)} | 连续分红{div_years}年\n"
-
-    # Northbound flow
-    if "error" not in northbound:
-        nb_items = northbound.get("items", [])
-        if nb_items:
-            latest_nb = nb_items[0]
-            nb_net = latest_nb.get("net_flow")
-            nb_cum = northbound.get("cumulative_net")
-            report += f"\n**北向资金**: 最新{_wan(nb_net)}{_flow_dir(nb_net)} | 30日累计{_yi(nb_cum)}\n"
+            report += f"\n**分红摘要**: 每股分红{_num(div_dps, '元')} | 股息率{_pct(div_yield)} | 连续分红{div_years}年 | 派息比率{_pct(dividend.get('payout_ratio'))}\n"
 
     return {"signal": signal, "report": report, "score": score, "data": data}
 

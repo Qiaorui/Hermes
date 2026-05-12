@@ -84,6 +84,90 @@ _CHAIN_MAP = {
         "complementary": ["冷链物流"],
         "substitute": ["进口食品"],
     },
+    "物流": {
+        "upstream": ["仓储", "包装", "运输设备"],
+        "downstream": ["电商", "制造业", "零售"],
+        "complementary": ["供应链管理", "跨境贸易"],
+        "substitute": ["自建物流", "直营配送"],
+    },
+    "通信": {
+        "upstream": ["半导体", "光纤光缆", "电子元件"],
+        "downstream": ["运营商", "互联网服务", "企业通信"],
+        "complementary": ["网络安全", "云计算"],
+        "substitute": ["卫星通信"],
+    },
+    "钢铁": {
+        "upstream": ["铁矿石", "焦炭", "废钢"],
+        "downstream": ["房地产", "汽车", "基建", "机械"],
+        "complementary": ["合金材料", "表面处理"],
+        "substitute": ["铝材", "复合材料"],
+    },
+    "煤炭": {
+        "upstream": ["采矿设备", "爆破器材"],
+        "downstream": ["电力", "钢铁", "化工", "建材"],
+        "complementary": ["铁路运输", "港口"],
+        "substitute": ["天然气", "新能源发电"],
+    },
+    "石油石化": {
+        "upstream": ["油气开采", "钻井设备"],
+        "downstream": ["化工", "塑料", "橡胶", "燃料"],
+        "complementary": ["管道运输", "仓储"],
+        "substitute": ["新能源", "生物燃料"],
+    },
+    "军工": {
+        "upstream": ["特种材料", "电子元件", "精密加工"],
+        "downstream": ["国防", "航空航天", "民用转化"],
+        "complementary": ["通信", "导航", "网络安全"],
+        "substitute": [],
+    },
+    "保险": {
+        "upstream": ["银行", "证券"],
+        "downstream": ["个人保障", "企业风控", "再保险"],
+        "complementary": ["健康管理", "养老服务"],
+        "substitute": ["自保", "互助"],
+    },
+    "证券": {
+        "upstream": ["银行", "数据服务"],
+        "downstream": ["投资管理", "融资", "并购"],
+        "complementary": ["金融科技", "监管服务"],
+        "substitute": ["银行理财", "基金"],
+    },
+    "家电": {
+        "upstream": ["半导体", "电子元件", "塑料", "压缩机"],
+        "downstream": ["零售", "电商", "房地产"],
+        "complementary": ["智能家居", "售后服务"],
+        "substitute": ["商用设备"],
+    },
+    "纺织服装": {
+        "upstream": ["棉花", "化纤", "染料"],
+        "downstream": ["零售", "电商", "品牌运营"],
+        "complementary": ["物流", "包装"],
+        "substitute": ["进口品牌", "快时尚"],
+    },
+    "建材": {
+        "upstream": ["水泥", "玻璃", "陶瓷原料"],
+        "downstream": ["房地产", "基建", "装修"],
+        "complementary": ["设计服务", "施工"],
+        "substitute": ["新型材料", "钢结构"],
+    },
+    "农业": {
+        "upstream": ["种子", "化肥", "农药", "农机"],
+        "downstream": ["食品加工", "餐饮", "零售"],
+        "complementary": ["冷链物流", "期货"],
+        "substitute": ["进口农产品"],
+    },
+    "传媒": {
+        "upstream": ["内容制作", "技术平台"],
+        "downstream": ["广告", "流媒体", "出版"],
+        "complementary": ["通信", "互联网"],
+        "substitute": ["游戏", "社交平台"],
+    },
+    "环保": {
+        "upstream": ["环保设备", "监测仪器"],
+        "downstream": ["市政", "工业", "能源"],
+        "complementary": ["新能源", "循环经济"],
+        "substitute": [],
+    },
 }
 
 # Fallback: generic mapping for industries not in _CHAIN_MAP
@@ -144,7 +228,7 @@ def _fetch_from_push2(industry: str) -> list[dict] | None:
     url = (
         f"http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=50&po=1&np=1&fltt=2"
         f"&invt=2&fs=m:1+t:2,m:0+t:6,m:0+t:80,m:1+t:23"
-        f"&fields=f2,f3,f9,f12,f14,f20,f100"
+        f"&fields=f2,f3,f9,f12,f14,f20,f23,f100,f115,f169,f170"
     )
     data = em_get(url, timeout=20)
     if not data or not data.get("data") or not data["data"].get("diff"):
@@ -160,7 +244,10 @@ def _fetch_from_push2(industry: str) -> list[dict] | None:
                     "price": float(item.get("f2", 0)) if item.get("f2") != "-" else None,
                     "change_pct": float(item.get("f3", 0)) if item.get("f3") != "-" else None,
                     "pe": float(item.get("f9", 0)) if item.get("f9") != "-" else None,
+                    "pb": float(item.get("f23", 0)) if item.get("f23") != "-" else None,
                     "market_cap": float(item.get("f20", 0)) if item.get("f20") != "-" else None,
+                    "profit_yoy": float(item.get("f115", 0)) if item.get("f115") != "-" else None,
+                    "revenue_yoy": float(item.get("f170", 0)) if item.get("f170") != "-" else None,
                 })
             except (ValueError, TypeError):
                 continue

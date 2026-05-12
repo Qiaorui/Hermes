@@ -42,3 +42,16 @@ class Report:
     content: str = ""
     score: int = 0
     created_at: str = ""
+
+
+@dataclass
+class Transaction:
+    id: int = 0
+    code: str = ""
+    name: str = ""
+    action: str = ""  # buy / sell / add / reduce
+    price: float = 0.0
+    shares: int = 0
+    amount: float = 0.0
+    note: str = ""
+    created_at: str = ""
