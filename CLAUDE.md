@@ -12,5 +12,14 @@
 
 ## 评估流程
 
-单股评估时，按 `.claude/commands/evaluate-stock.md` 的 skill 执行，8步全流程不可省略。
-量化数据用 MCP stock_* 工具获取，不要用 Bash 调用 Python 脚本绕过。
+单股评估时，按 `.claude/commands/evaluate-stock.md` 模板执行，8步全流程不可省略。
+
+**触发方式：**
+- 用户输入 `/evaluate-stock 002352` → 自动加载模板，$ARGUMENTS 替换为股票代码
+- 用户说"帮我分析XXX" / "评估顺丰控股"等 → 你应主动读取 evaluate-stock.md 模板并按8步执行
+
+**量化数据**：用 MCP `mcp_*` 工具获取，不要用 Bash 调用 Python 脚本绕过。
+
+**因子评分**：用 MCP `mcp_factor_composite(code)` 获取，报告第三部分应包含6因子评分表。
+
+**报告存储**：第8步必须调用 MCP `save_evaluation_report` 和 `save_trigger_conditions` 将结果持久化。
