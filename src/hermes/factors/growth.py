@@ -1,20 +1,21 @@
-"""Growth factor — GROWTH (Barra CNE5S).
+"""Growth factor — GROWTH (Barra CNE5S), industry-neutralized.
 
 Sub-factors:
-  - Revenue YoY: higher → better growth
-  - Net Profit YoY: higher → better growth
-  - Revenue acceleration: improving trend → bonus
+  - Revenue YoY: industry-relative percentile when available
+  - Net Profit YoY: industry-relative percentile when available
+  - Revenue acceleration: time-series trend
+
+Strict data policy: no fallback values. Missing data → None + unavailable label.
 """
 
 from hermes.data.quote import stock_quote
 from hermes.data.financial import stock_financial
+from hermes.data.industry import get_industry_median_from_quote, industry_percentile
+from hermes.factors._utils import weighted_avg, unavailable_list, coverage_pct
 
 
-def _growth_score(yoy: float | None) -> float:
-    """Convert YoY growth rate to 0-10 score based on A-share norms."""
-    if yoy is None:
-        return 0
-    # A-share growth distribution: -30% → 0, 0% → 3, 10% → 5, 20% → 7, 50% → 9, 100% → 10
+def _growth_score(yoy: float) -> float:
+    """Convert absolute YoY growth rate to 0-10 score. Only called with valid (non-None) values."""
     if yoy < -30:
         return 0
     elif yoy < -10:
@@ -36,12 +37,11 @@ def _growth_score(yoy: float | None) -> float:
 
 
 def growth_factor(code: str) -> dict:
-    """Compute growth factor score (0-10). Higher growth = higher score."""
+    """Compute growth factor score (0-10). Industry-neutralized, no fallbacks."""
     quote = stock_quote(code)
     if "error" in quote:
         return {"error": "Failed to get quote", "code": code}
 
-    # Latest YoY from quote (these are in percent, e.g. -0.27 means -27%)
     revenue_yoy = quote.get("revenue_yoy")
     profit_yoy = quote.get("profit_yoy")
 
@@ -60,37 +60,81 @@ def growth_factor(code: str) -> dict:
     else:
         profit_yoy_pct = None
 
-    # Check growth trend from financial statements
+    # Get industry benchmarks
+    ind_bench = get_industry_median_from_quote(quote)
+    ind_name = ind_bench.get("industry") if ind_bench else None
+
+    scores = {}
+    reasons = {}
+
+    # Revenue YoY score: industry-relative percentile, None when data unavailable
+    if revenue_yoy_pct is not None:
+        if ind_name:
+            rev_pct = industry_percentile(revenue_yoy_pct, ind_name, "revenue_yoy")
+            scores["revenue"] = rev_pct / 10 if rev_pct is not None else None
+            if scores["revenue"] is None:
+                reasons["revenue"] = "industry revenue YoY median unavailable"
+        else:
+            scores["revenue"] = None
+            reasons["revenue"] = "industry benchmark unavailable"
+    else:
+        scores["revenue"] = None
+        reasons["revenue"] = "revenue YoY data unavailable"
+
+    # Profit YoY score: industry-relative percentile, None when data unavailable
+    if profit_yoy_pct is not None:
+        if ind_name:
+            prof_pct = industry_percentile(profit_yoy_pct, ind_name, "profit_yoy")
+            scores["profit"] = prof_pct / 10 if prof_pct is not None else None
+            if scores["profit"] is None:
+                reasons["profit"] = "industry profit YoY median unavailable"
+        else:
+            scores["profit"] = None
+            reasons["profit"] = "industry benchmark unavailable"
+    else:
+        scores["profit"] = None
+        reasons["profit"] = "profit YoY data unavailable"
+
+    # Trend: time-series, None when insufficient data
     inc = stock_financial(code, "income", 4)
     periods = inc.get("periods", [])
 
-    trend_score = 0
     if len(periods) >= 3:
-        # Check if recent revenue growth is improving
         recent_revs = [p.get("TOTAL_OPERATE_INCOME") for p in periods[-3:]]
         if all(v is not None and v > 0 for v in recent_revs):
-            # If revenue is growing quarter over quarter
             if recent_revs[0] > recent_revs[1] > recent_revs[2]:
-                trend_score = 2  # accelerating
+                scores["trend"] = 2.0
             elif recent_revs[0] > recent_revs[1]:
-                trend_score = 1  # recovering
+                scores["trend"] = 1.0
+            else:
+                scores["trend"] = 0.0
+        else:
+            scores["trend"] = None
+            reasons["trend"] = "insufficient revenue data for trend"
+    else:
+        scores["trend"] = None
+        reasons["trend"] = "fewer than 3 financial periods"
 
-    revenue_score = _growth_score(revenue_yoy_pct)
-    profit_score = _growth_score(profit_yoy_pct)
+    weights = {"profit": 0.60, "revenue": 0.30, "trend": 0.10}
+    composite = weighted_avg(scores, weights)
 
-    # Composite: profit YoY weight 60%, revenue 30%, trend 10%
-    composite = round(profit_score * 0.6 + revenue_score * 0.3 + trend_score * 0.1, 1)
-    composite = max(0, min(10, composite))
+    if composite is None:
+        return {"error": "No data available for growth factor", "code": code}
 
     return {
         "factor": "growth",
         "score": composite,
+        "coverage_pct": coverage_pct(scores),
         "details": {
             "revenue_yoy_pct": revenue_yoy_pct,
             "profit_yoy_pct": profit_yoy_pct,
-            "revenue_score": round(revenue_score, 1),
-            "profit_score": round(profit_score, 1),
-            "trend_score": trend_score,
+            "industry": ind_name,
+            "industry_revenue_yoy_median": ind_bench.get("revenue_yoy_median") if ind_bench else None,
+            "industry_profit_yoy_median": ind_bench.get("profit_yoy_median") if ind_bench else None,
+            "revenue_score": scores.get("revenue"),
+            "profit_score": scores.get("profit"),
+            "trend_score": scores.get("trend"),
             "periods_available": len(periods),
+            "unavailable": unavailable_list(scores, reasons),
         },
     }

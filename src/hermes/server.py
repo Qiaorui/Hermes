@@ -198,6 +198,28 @@ def save_trigger_conditions(code: str, name: str, triggers_json: str) -> str:
 
 
 @mcp.tool()
+def mcp_industry_benchmarks(industry: str = "") -> str:
+    """Get industry median benchmarks (PE, PB, profit YoY, revenue YoY).
+    Used for industry-neutralized factor scoring.
+
+    Args:
+        industry: Optional industry name to filter (empty = all industries).
+    """
+    from hermes.data.industry import get_industry_benchmarks
+    bench = get_industry_benchmarks()
+    if industry:
+        # Direct + partial match
+        matched = {}
+        for k in bench:
+            if industry in k or k in industry:
+                matched[k] = bench[k]
+        if not matched:
+            return json.dumps({"error": f"No match for '{industry}'", "available": list(bench.keys())[:20]}, ensure_ascii=False)
+        return json.dumps(matched, ensure_ascii=False)
+    return json.dumps(bench, ensure_ascii=False)
+
+
+@mcp.tool()
 def mcp_factor_score(code: str, factors: str = "") -> str:
     """Compute quantitative factor scores for a stock. Returns 0-10 scores per factor.
 

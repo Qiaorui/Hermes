@@ -284,20 +284,28 @@ def factor(
     f_table.add_column("评级", justify="center", min_width=6)
 
     for fname, fdata in result["factors"].items():
-        score = fdata.get("score", 0)
+        score = fdata.get("score")
+        coverage = fdata.get("coverage_pct", 100)
+        if score is None:
+            f_table.add_row(fname, Text("N/A", style="dim"), Text("数据缺失", style="dim"))
+            continue
         rating = "优秀" if score >= 7 else ("良好" if score >= 5 else ("一般" if score >= 3 else "较差"))
         color = "green" if score >= 7 else ("cyan" if score >= 5 else ("yellow" if score >= 3 else "red"))
-        f_table.add_row(fname, Text(str(score), style=color), Text(rating, style=color))
+        cov_color = "green" if coverage == 100 else ("yellow" if coverage >= 67 else "red")
+        f_table.add_row(fname, Text(str(score), style=color), Text(f"{rating} ({coverage:.0f}%)", style=f"{color} {cov_color}"))
 
     console.print(f_table)
 
-    # Print key sub-factor details
+    # Print key sub-factor details + unavailable warnings
     for fname, fdata in result["factors"].items():
         details = fdata.get("details", {})
-        if details:
-            key_items = [f"{k}={v}" for k, v in details.items() if v is not None and not k.endswith("_score")]
-            if key_items:
-                typer.echo(f"  {fname}: {', '.join(key_items)}")
+        unavail = details.get("unavailable", [])
+        key_items = [f"{k}={v}" for k, v in details.items() if v is not None and not k.endswith("_score") and k != "unavailable"]
+        if key_items:
+            typer.echo(f"  {fname}: {', '.join(key_items)}")
+        if unavail:
+            for u in unavail:
+                typer.echo(f"    ⚠ {u['sub_factor']}: {u['reason']}")
 
     if composite:
         comp = composite_factor(code)
@@ -306,8 +314,14 @@ def factor(
             signal = comp["signal"]
             signal_icon = {"buy": "▲", "hold": "●", "watch": "◆", "sell": "▼"}.get(signal, "?")
             signal_color = {"buy": "green", "hold": "cyan", "watch": "yellow", "sell": "red"}.get(signal, "white")
+            text = f"综合评分: {score}/10  信号: {signal_icon} {signal.upper()}"
+            partial = comp.get("partial_factors", [])
+            if partial:
+                text += "\n⚠ 数据覆盖不完整:"
+                for pf in partial:
+                    text += f"\n  {pf['factor']}: 仅{pf['coverage_pct']}%因子可用"
             console.print(Panel(
-                Text(f"综合评分: {score}/10  信号: {signal_icon} {signal.upper()}", style=f"bold {signal_color}"),
+                Text(text, style=f"bold {signal_color}"),
                 title="综合因子", border_style=signal_color,
             ))
 

@@ -1,14 +1,18 @@
-"""Value factor — BTOP + EARNYILD (Barra CNE5S).
+"""Value factor — BTOP + EARNYILD (Barra CNE5S), industry-neutralized.
 
 Sub-factors:
-  - PE percentile: lower PE → higher score (cheaper = better)
-  - PB percentile: lower PB → higher score
-  - PS percentile: lower PS → higher score
-  - EP (earnings yield): higher EP → higher score
+  - PE: industry-relative percentile (lower vs industry median → higher score)
+  - PB: industry-relative percentile (lower vs industry median → higher score)
+  - PS: absolute thresholds (no industry PS median available)
+  - EP (earnings yield): absolute scoring (1/PE)
+
+Strict data policy: no fallback values. Missing data → None + unavailable label.
 """
 
 from hermes.data.quote import stock_quote
 from hermes.data.valuation import stock_valuation_history
+from hermes.data.industry import get_industry_median_from_quote, industry_percentile
+from hermes.factors._utils import weighted_avg, unavailable_list, coverage_pct
 
 
 def _invert_score(pct: float) -> float:
@@ -16,8 +20,24 @@ def _invert_score(pct: float) -> float:
     return max(0, min(10, 10 * (1 - pct / 100)))
 
 
+def _ps_score(ps: float | None) -> float | None:
+    """PS absolute scoring. Returns None when ps is None."""
+    if ps is None:
+        return None
+    elif ps < 2.0:
+        return 9.0
+    elif ps < 5.0:
+        return 6.0
+    elif ps < 10.0:
+        return 3.0
+    elif ps < 20.0:
+        return 1.0
+    else:
+        return 0.5
+
+
 def value_factor(code: str) -> dict:
-    """Compute value factor score (0-10). Lower valuation = higher score."""
+    """Compute value factor score (0-10). Industry-neutralized, no fallbacks."""
     quote = stock_quote(code)
     if "error" in quote:
         return {"error": "Failed to get quote", "code": code}
@@ -31,59 +51,76 @@ def value_factor(code: str) -> dict:
     pb = quote.get("pb")
     ps = quote.get("ps")
 
-    # PE score: use percentile inversion
-    pe_score = _invert_score(price_pct) if pe and pe > 0 else 0
+    # Get industry benchmarks
+    ind_bench = get_industry_median_from_quote(quote)
+    ind_name = ind_bench.get("industry") if ind_bench else None
 
-    # PB score: absolute thresholds for A-share norms
-    if pb is None:
-        pb_score = 5.0  # neutral when missing
-    elif pb < 1.0:
-        pb_score = 9.0
-    elif pb < 2.0:
-        pb_score = 7.0
-    elif pb < 4.0:
-        pb_score = 4.0
-    elif pb < 8.0:
-        pb_score = 2.0
+    scores = {}
+    reasons = {}
+
+    # PE score: industry-relative percentile, None when data unavailable
+    if pe and pe > 0:
+        if ind_name:
+            pe_pct = industry_percentile(pe, ind_name, "pe")
+            scores["pe"] = pe_pct / 10 if pe_pct is not None else None
+            if scores["pe"] is None:
+                reasons["pe"] = "industry PE median unavailable"
+        else:
+            scores["pe"] = None
+            reasons["pe"] = "industry benchmark unavailable"
     else:
-        pb_score = 0.5
+        scores["pe"] = None
+        reasons["pe"] = "PE data unavailable or negative"
 
-    # PS score: absolute thresholds
-    if ps is None:
-        ps_score = 5.0
-    elif ps < 2.0:
-        ps_score = 9.0
-    elif ps < 5.0:
-        ps_score = 6.0
-    elif ps < 10.0:
-        ps_score = 3.0
-    elif ps < 20.0:
-        ps_score = 1.0
+    # PB score: industry-relative percentile, None when data unavailable
+    if pb is not None:
+        if ind_name:
+            pb_pct = industry_percentile(pb, ind_name, "pb")
+            scores["pb"] = pb_pct / 10 if pb_pct is not None else None
+            if scores["pb"] is None:
+                reasons["pb"] = "industry PB median unavailable"
+        else:
+            scores["pb"] = None
+            reasons["pb"] = "industry benchmark unavailable"
     else:
-        ps_score = 0.5
+        scores["pb"] = None
+        reasons["pb"] = "PB data unavailable"
 
-    # EP (earnings yield = 1/PE), higher = better value
+    # PS score: absolute thresholds, None when data unavailable
+    scores["ps"] = _ps_score(ps)
+    if scores["ps"] is None:
+        reasons["ps"] = "PS data unavailable"
+
+    # EP (earnings yield = 1/PE), None when PE unavailable
     if pe and pe > 0:
         ep = 1 / pe
-        ep_score = min(10, ep * 100)  # EP=10% → score 10
+        scores["ep"] = min(10, ep * 100)
     else:
-        ep_score = 0  # negative PE → no value
+        scores["ep"] = None
+        reasons["ep"] = "PE unavailable, cannot compute earnings yield"
 
-    # Composite: equal weight
-    scores = [pe_score, pb_score, ps_score, ep_score]
-    composite = round(sum(scores) / len(scores), 1)
+    weights = {"pe": 0.25, "pb": 0.25, "ps": 0.25, "ep": 0.25}
+    composite = weighted_avg(scores, weights)
+
+    if composite is None:
+        return {"error": "No data available for value factor", "code": code}
 
     return {
         "factor": "value",
         "score": composite,
+        "coverage_pct": coverage_pct(scores),
         "details": {
             "pe_dynamic": pe,
             "pb": pb,
             "ps": ps,
             "price_pct_in_range": price_pct,
-            "pe_score": round(pe_score, 1),
-            "pb_score": round(pb_score, 1),
-            "ps_score": round(ps_score, 1),
-            "ep_score": round(ep_score, 1),
+            "industry": ind_name,
+            "industry_pe_median": ind_bench.get("pe_median") if ind_bench else None,
+            "industry_pb_median": ind_bench.get("pb_median") if ind_bench else None,
+            "pe_score": scores.get("pe"),
+            "pb_score": scores.get("pb"),
+            "ps_score": scores.get("ps"),
+            "ep_score": scores.get("ep"),
+            "unavailable": unavailable_list(scores, reasons),
         },
     }
