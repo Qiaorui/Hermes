@@ -7,18 +7,18 @@ Provides:
   - Industry concentration and competitive landscape
 
 Uses akshare stock_board_industry_* APIs + East Money datacenter.
-Disk cache at ~/.stocker/cache/industry_chain.json with 4-hour TTL.
+Disk cache at .hermes/cache/industry_chain.json with 4-hour TTL.
 """
 
 import json
 import time
 import logging
-from pathlib import Path
 from hermes.api.eastmoney import em_get
+from hermes.config import CONFIG_DIR
 
 log = logging.getLogger(__name__)
 
-CACHE_DIR = Path.home() / ".stocker" / "cache"
+CACHE_DIR = CONFIG_DIR / "cache"
 CACHE_FILE = CACHE_DIR / "industry_chain.json"
 CACHE_TTL = 4 * 3600
 

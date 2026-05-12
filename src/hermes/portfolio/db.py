@@ -4,8 +4,9 @@ import sqlite3
 from pathlib import Path
 from hermes.portfolio.models import Holding, WatchItem, TriggerCondition, Report
 
-DB_DIR = Path.home() / ".hermes"
-DB_PATH = DB_DIR / "hermes.db"
+from hermes.config import CONFIG_DIR
+
+DB_PATH = CONFIG_DIR / "hermes.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS holdings (
@@ -48,7 +49,7 @@ CREATE TABLE IF NOT EXISTS reports (
 
 
 def _get_conn() -> sqlite3.Connection:
-    DB_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)

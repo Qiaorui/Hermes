@@ -6,9 +6,7 @@ from datetime import date
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich.layout import Layout
 from rich.text import Text
-from rich.bar import Bar
 from hermes.strategy.eval import analyze, get_triggers
 from hermes.factors import factor_score, ALL_FACTORS
 from hermes.factors.composite import composite_factor
@@ -161,7 +159,7 @@ app.add_typer(trigger_app, name="trigger")
 
 @app.command()
 def evaluate(code: str):
-    """Evaluate a single stock. Runs analysis, saves report and triggers."""
+    """Evaluate a single stock. Runs full analysis, saves report and triggers."""
     typer.echo(f"正在评估 {code}...")
     analysis = analyze(code)
     signal = analysis.get("signal", "hold")
@@ -180,20 +178,26 @@ def evaluate(code: str):
     trigger_models = [TriggerCondition(**t) for t in triggers_raw]
     save_triggers(trigger_models)
 
-    # Print report
-    typer.echo(report)
-    typer.echo(f"\n信号: {signal.upper()}")
+    # Print full report with Rich
+    console.print(Panel(report, title=f"{name}（{code}）评估报告", border_style="cyan"))
 
-    # Print triggers
+    # Signal summary
+    signal_icon = {"buy": "▲", "hold": "●", "watch": "◆", "sell": "▼"}.get(signal, "?")
+    signal_color = {"buy": "green", "hold": "cyan", "watch": "yellow", "sell": "red"}.get(signal, "white")
+    console.print(Panel(
+        Text(f"{signal_icon} 信号: {signal.upper()} | 评分: {analysis.get('score', 0)}/50", style=f"bold {signal_color}"),
+        title="综合信号", border_style=signal_color,
+    ))
+
+    # Triggers
     if triggers_raw:
-        typer.echo("\n触发条件:")
+        t_table = Table(title="触发条件", show_lines=False, title_style="bold red")
+        t_table.add_column("类型", min_width=15)
+        t_table.add_column("阈值", justify="right", min_width=10)
+        t_table.add_column("描述", min_width=30)
         for t in triggers_raw:
-            typer.echo(f"  - {t['description']}")
-
-    # Print key metrics summary
-    if quote and "error" not in quote:
-        typer.echo(f"\n关键指标:")
-        typer.echo(f"  价格: {quote.get('price')} | PE: {quote.get('pe_dynamic')} | 净利润同比: {quote.get('profit_yoy')}%")
+            t_table.add_row(t["type"], str(t["value"]), t["description"])
+        console.print(t_table)
 
 
 @app.command()

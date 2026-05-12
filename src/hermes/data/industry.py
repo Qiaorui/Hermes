@@ -6,7 +6,7 @@ Uses a different API endpoint than push2.eastmoney.com, immune to push2 anti-scr
 
 Fallback source: push2 clist API (rate-limited, 31s between requests).
 
-Disk cache at ~/.stocker/cache/industry_benchmarks.json with 4-hour TTL.
+Disk cache at .hermes/cache/industry_benchmarks.json with 4-hour TTL.
 When push2 is down, akshare ensures benchmarks are still available.
 """
 
@@ -14,12 +14,12 @@ import json
 import time
 import logging
 import statistics
-from pathlib import Path
 from hermes.api.eastmoney import em_get
+from hermes.config import CONFIG_DIR
 
 log = logging.getLogger(__name__)
 
-CACHE_DIR = Path.home() / ".stocker" / "cache"
+CACHE_DIR = CONFIG_DIR / "cache"
 CACHE_FILE = CACHE_DIR / "industry_benchmarks.json"
 CACHE_TTL = 4 * 3600  # 4 hours
 

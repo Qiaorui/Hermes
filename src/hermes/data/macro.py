@@ -7,7 +7,7 @@ Provides key macro data:
   - LPR interest rate (1Y + 5Y)
   - M2 money supply growth
 
-Uses akshare macro APIs with disk cache (4-hour TTL).
+Disk cache at .hermes/cache/macro_indicators.json (4-hour TTL).
 
 Strict data policy: returns latest available data. Missing indicators → None.
 """
@@ -15,11 +15,11 @@ Strict data policy: returns latest available data. Missing indicators → None.
 import json
 import time
 import logging
-from pathlib import Path
+from hermes.config import CONFIG_DIR
 
 log = logging.getLogger(__name__)
 
-CACHE_DIR = Path.home() / ".stocker" / "cache"
+CACHE_DIR = CONFIG_DIR / "cache"
 CACHE_FILE = CACHE_DIR / "macro_indicators.json"
 CACHE_TTL = 4 * 3600
 

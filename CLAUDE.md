@@ -20,6 +20,6 @@
 
 **量化数据**：用 MCP `mcp_*` 工具获取，不要用 Bash 调用 Python 脚本绕过。
 
-**因子评分**：用 MCP `mcp_factor_composite(code)` 获取，报告第三部分应包含6因子评分表。
+**因子评分**：用 MCP `mcp_factor_composite(code)` 获取，报告第三部分应包含8因子评分表。
 
 **报告存储**：第8步必须调用 MCP `save_evaluation_report` 和 `save_trigger_conditions` 将结果持久化。

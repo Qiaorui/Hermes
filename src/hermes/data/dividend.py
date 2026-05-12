@@ -89,12 +89,19 @@ def _fetch_from_datacenter(code: str) -> dict | None:
     return {"code": code, "count": len(records), "dividends": records, "source": "datacenter"}
 
 
-def stock_dividend(code: str) -> dict:
+def stock_dividend(code: str, quote: dict | None = None) -> dict:
     """Get dividend history for a stock. Returns yield, payout ratio, consistency.
 
-    Tries akshare first, then East Money datacenter.
-    If both fail, returns explicit error dict.
+    Args:
+        code: Stock code.
+        quote: Optional pre-fetched quote dict (avoids redundant stock_quote call).
     """
+    def _get_quote():
+        if quote and "error" not in quote:
+            return quote
+        from hermes.data.quote import stock_quote
+        return stock_quote(code)
+
     # Primary: akshare
     result = _fetch_from_akshare(code)
     if result:
@@ -114,30 +121,23 @@ def stock_dividend(code: str) -> dict:
         # Dividend yield = latest DPS / current price
         dividend_yield = None
         if latest_dps:
-            from hermes.data.quote import stock_quote
-            q = stock_quote(code)
+            q = _get_quote()
             if "error" not in q and q.get("price"):
                 dividend_yield = round(latest_dps / q["price"] * 100, 2)
 
-        # Payout ratio = DPS / EPS (use latest DPS + EPS from financial data)
+        # Payout ratio = DPS / EPS
         payout_ratio = None
         if latest_dps:
             from hermes.data.financial import stock_financial
             income = stock_financial(code, "income", 1)
             if "error" not in income and income.get("periods"):
                 latest = income["periods"][0]
-                np_ratio = latest.get("PARENT_NETPROFIT_RATIO")
-                toi = latest.get("TOTAL_OPERATE_INCOME")
-                # Approximate: payout_ratio ≈ DPS / EPS; EPS ≈ NP / total_shares
-                # If we have net profit ratio, compute: payout = DPS * total_shares / NP
-                # Simplified: use DPS and assume EPS from quote or compute
-                from hermes.data.quote import stock_quote as _sq
-                q2 = _sq(code)
-                if "error" not in q2:
-                    total_shares = q2.get("total_shares")
+                q = _get_quote()
+                if "error" not in q:
+                    total_shares = q.get("total_shares")
                     np_val = latest.get("PARENT_NETPROFIT")
                     if total_shares and np_val and np_val > 0:
-                        eps = np_val / (total_shares / 10000)  # financial in 亿元, shares in 万股
+                        eps = np_val / (total_shares / 10000)
                         if eps > 0:
                             payout_ratio = round(latest_dps / eps * 100, 2)
 
@@ -162,8 +162,7 @@ def stock_dividend(code: str) -> dict:
                 break
         dividend_yield = None
         if latest_dps:
-            from hermes.data.quote import stock_quote
-            q = stock_quote(code)
+            q = _get_quote()
             if "error" not in q and q.get("price"):
                 dividend_yield = round(latest_dps / q["price"] * 100, 2)
         result["latest_dps"] = latest_dps

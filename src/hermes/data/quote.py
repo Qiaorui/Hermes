@@ -5,12 +5,19 @@ Fallback sources when push2 is unavailable:
   - akshare stock_value_em: PE, PB, PS, market_cap, price (datacenter-based, no rate limit)
   - emweb CompanySurvey: industry, company name
   - datacenter MAINFINADATA: revenue YoY, profit YoY, financial ratios
+
+In-memory cache (60s TTL) prevents redundant calls during a single evaluation run.
 """
 
+import time
 import logging
 from hermes.api.eastmoney import em_get, emweb_get, parse_secid, _push2_down
 
 log = logging.getLogger(__name__)
+
+# In-memory cache to prevent redundant quote calls across factor modules
+_quote_cache: dict[str, tuple[float, dict]] = {}
+_QUOTE_CACHE_TTL = 60  # seconds
 
 
 def _val(d: dict, key: str) -> float | int | None:
@@ -168,18 +175,27 @@ def _fetch_from_fallback(code: str) -> dict | None:
 def stock_quote(code: str) -> dict:
     """Get real-time stock quote. Returns dict with price, PE, PB, PS, market cap, YoY etc.
 
-    Tries push2 first (primary, rate-limited). Falls back to akshare+datacenter+emweb
-    when push2 is unavailable.
+    Uses in-memory cache (60s TTL) to prevent redundant calls across factor modules.
     """
+    # Check cache first
+    now = time.time()
+    cached = _quote_cache.get(code)
+    if cached and now - cached[0] < _QUOTE_CACHE_TTL:
+        return cached[1]
+
     # Primary: push2
     result = _fetch_from_push2(code)
     if result:
+        _quote_cache[code] = (now, result)
         return result
 
     # Fallback: akshare + datacenter + emweb
     log.info(f"push2 unavailable for {code} — using fallback sources")
     result = _fetch_from_fallback(code)
     if result:
+        _quote_cache[code] = (now, result)
         return result
 
-    return {"error": "Failed to get quote", "code": code}
+    err = {"error": "Failed to get quote", "code": code}
+    _quote_cache[code] = (now, err)
+    return err

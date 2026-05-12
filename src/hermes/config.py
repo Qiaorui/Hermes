@@ -1,9 +1,11 @@
-"""User configuration — ~/.hermes/config.json with sensible defaults."""
+"""User configuration — project-local .hermes/config.json with sensible defaults."""
 
 import json
 from pathlib import Path
 
-CONFIG_DIR = Path.home() / ".hermes"
+# Project-local data directory (next to pyproject.toml, not in home dir)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+CONFIG_DIR = PROJECT_ROOT / ".hermes"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULT_CONFIG = {
@@ -17,7 +19,7 @@ DEFAULT_CONFIG = {
         "volatility": 0.06,
         "liquidity": 0.07,
     },
-    "reports_dir": str(Path.home() / ".hermes" / "reports"),
+    "reports_dir": str(PROJECT_ROOT / ".hermes" / "reports"),
 }
 
 

@@ -1,9 +1,9 @@
 """Northbound capital flow (北向资金) — daily net inflow from沪股通 + 深股通.
 
-Source: akshare stock_hsgt_north_net_flow_in_em (East Money 北向资金数据).
-Returns daily net flow data showing how much foreign capital is entering
-A-share market through Shanghai and Shenzhen Connect channels.
+Source: akshare stock_hsgt_hist_em (East Money 北向资金数据).
+Returns daily net flow data showing foreign capital entering A-share market.
 
+Note: akshare northbound data may have NaN for recent dates (after Aug 2024).
 Strict data policy: no fallback values. Missing data → explicit error.
 """
 
@@ -24,50 +24,61 @@ def northbound_flow(days: int = 30) -> dict:
 
     try:
         import akshare as ak
-        df = ak.stock_hsgt_north_net_flow_in_em(symbol="北向资金")
-        if df is None or len(df) == 0:
+        # Fetch 沪股通 + 深股通 separately, then combine
+        sh_data = ak.stock_hsgt_hist_em(symbol="沪股通")
+        sz_data = ak.stock_hsgt_hist_em(symbol="深股通")
+        total_data = ak.stock_hsgt_hist_em(symbol="北向资金")
+
+        # Use total_data (北向资金) as primary, fall back to combined
+        df = total_data if total_data is not None and len(total_data) > 0 else None
+
+        if df is None:
             return {"error": "Northbound flow data unavailable", "days": days}
 
-        # Take most recent `days` rows
-        df = df.tail(days)
+        # Filter rows with valid net purchase data (non-NaN)
+        valid = df[df["当日成交净买额"].notna()].tail(days)
+        if len(valid) == 0:
+            return {"error": "Northbound flow: recent data is NaN (data source gap)", "days": days}
 
         entries = []
-        for _, row in df.iterrows():
+        for _, row in valid.iterrows():
             try:
-                # Common column names from akshare: 日期, 当日净流入(沪股通+深股通), 当日余额
-                entry = {
+                net_flow = float(row.get("当日成交净买额", 0)) if row.get("当日成交净买额") is not None else None
+                cumulative = float(row.get("历史累计净买额", 0)) if row.get("历史累计净买额") is not None else None
+                if net_flow is None:
+                    continue
+                entries.append({
                     "date": str(row.get("日期", "")),
-                    "net_inflow": float(row.get("当日净流入", 0)) if row.get("当日净流入") else None,
-                    "balance": float(row.get("当日余额", 0)) if row.get("当日余额") else None,
-                }
-                # Try alternative column names
-                if entry["net_inflow"] is None:
-                    net_col = row.get("当日资金净流入", row.get("净流入", None))
-                    if net_col is not None:
-                        entry["net_inflow"] = float(net_col)
-                entries.append(entry)
+                    "net_flow": net_flow,
+                    "cumulative": cumulative,
+                })
             except (ValueError, TypeError):
                 continue
 
         if not entries:
             return {"error": "No valid northbound flow entries", "days": days}
 
-        # Compute summary stats
-        inflows = [e["net_inflow"] for e in entries if e["net_inflow"] is not None]
-        total_net = round(sum(inflows), 2) if inflows else None
-        avg_daily = round(sum(inflows) / len(inflows), 2) if inflows else None
-        positive_days = sum(1 for v in inflows if v > 0)
-        positive_pct = round(positive_days / len(inflows) * 100, 1) if inflows else None
+        # Summary stats
+        flows = [e["net_flow"] for e in entries]
+        total_net = round(sum(flows), 2) if flows else None
+        avg_daily = round(sum(flows) / len(flows), 2) if flows else None
+        positive_days = sum(1 for v in flows if v > 0)
+        positive_pct = round(positive_days / len(flows) * 100, 1) if flows else None
+        cumulative_net = entries[-1].get("cumulative") if entries else None
 
         return {
             "days": days,
             "count": len(entries),
-            "flow": entries,
-            "total_net_inflow": total_net,
-            "avg_daily_net_inflow": avg_daily,
+            "items": entries,
+            "cumulative_net": cumulative_net,
+            "total_net": total_net,
+            "avg_daily_net": avg_daily,
             "positive_days_pct": positive_pct,
             "source": "akshare",
         }
+    except AttributeError as e:
+        log.warning(f"akshare northbound API changed: {e}")
+        return {"error": "Northbound flow API unavailable (akshare update needed)", "days": days}
     except Exception as e:
         log.warning(f"akshare northbound_flow failed: {e}")
         return {"error": "Northbound flow data unavailable", "days": days}
