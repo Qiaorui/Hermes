@@ -228,10 +228,11 @@ $ARGUMENTS
 
 ### 工具调用注意事项
 
-- 搜索优先用 `web_search`（backend="google"，失败自动切 lite）
-- 新闻用 `web_search_news`（失败会自动 fallback 到 web_search）
-- 网页内容用 `web_fetch_page`（指定 keywords 过滤相关片段）
-- 量化数据用 `stock_quote`、`stock_kline`、`stock_fund_flow`、`stock_announcements`、`stock_valuation_history`、`stock_financial`、`stock_shareholders`、`stock_unlock_schedule`、`market_index`
-- 报告存储用 `save_evaluation_report`、`save_trigger_conditions`
+- **禁止使用 Claude Code 内置的 WebSearch/WebFetch，必须使用本项目 MCP 工具**
+- 网页搜索：用 MCP `web_search`（backend="google"，失败自动切 lite）
+- 新闻搜索：用 MCP `web_search_news`（失败会自动 fallback 到 web_search）
+- 网页内容：用 MCP `web_fetch_page`（指定 keywords 过滤相关片段）
+- 量化数据用 MCP `mcp_stock_quote`、`mcp_stock_kline`、`mcp_stock_fund_flow`、`mcp_stock_announcements`、`mcp_stock_valuation_history`、`mcp_stock_financial`、`mcp_stock_shareholders`、`mcp_stock_unlock_schedule`、`mcp_market_index`
+- 报告存储用 MCP `save_evaluation_report`、`save_trigger_conditions`
 - 所有金额单位统一为"亿元"（stock_financial 已自动转换）
 - 报告末尾注明信息来源和时间
