@@ -1,10 +1,11 @@
-"""Value factor — BTOP + EARNYILD (Barra CNE5S), industry-neutralized.
+"""Value factor — BTOP + EARNYILD + PEG (Barra CNE5S), industry-neutralized.
 
 Sub-factors:
   - PE: industry-relative percentile (lower vs industry median → higher score)
   - PB: industry-relative percentile (lower vs industry median → higher score)
   - PS: absolute thresholds (no industry PS median available)
   - EP (earnings yield): absolute scoring (1/PE)
+  - PEG: PE / profit_yoy (lower → better value; handles negative/zero growth)
 
 Strict data policy: no fallback values. Missing data → None + unavailable label.
 """
@@ -36,6 +37,30 @@ def _ps_score(ps: float | None) -> float | None:
         return 0.5
 
 
+def _peg_score(pe: float | None, profit_yoy: float | None) -> float | None:
+    """PEG scoring: PE / profit_yoy %. Lower PEG = better value.
+    Returns None when data unavailable or growth is negative/zero.
+    """
+    if pe is None or profit_yoy is None:
+        return None
+    if pe <= 0 or profit_yoy <= 0:
+        # Negative PE or negative growth → PEG meaningless
+        return None
+    peg = pe / profit_yoy
+    if peg < 0.5:
+        return 9.0
+    elif peg < 1.0:
+        return 7.0
+    elif peg < 1.5:
+        return 5.0
+    elif peg < 2.0:
+        return 3.0
+    elif peg < 3.0:
+        return 1.5
+    else:
+        return 0.5
+
+
 def value_factor(code: str) -> dict:
     """Compute value factor score (0-10). Industry-neutralized, no fallbacks."""
     quote = stock_quote(code)
@@ -50,6 +75,7 @@ def value_factor(code: str) -> dict:
     pe = quote.get("pe_dynamic")
     pb = quote.get("pb")
     ps = quote.get("ps")
+    profit_yoy = quote.get("profit_yoy")
 
     # Get industry benchmarks
     ind_bench = get_industry_median_from_quote(quote)
@@ -99,7 +125,17 @@ def value_factor(code: str) -> dict:
         scores["ep"] = None
         reasons["ep"] = "PE unavailable, cannot compute earnings yield"
 
-    weights = {"pe": 0.25, "pb": 0.25, "ps": 0.25, "ep": 0.25}
+    # PEG (PE / profit_yoy %), None when growth negative/zero or PE unavailable
+    scores["peg"] = _peg_score(pe, profit_yoy)
+    if scores["peg"] is None:
+        if pe is None or pe <= 0:
+            reasons["peg"] = "PE unavailable or negative"
+        elif profit_yoy is None:
+            reasons["peg"] = "profit_yoy unavailable"
+        else:
+            reasons["peg"] = "profit_yoy negative or zero, PEG undefined"
+
+    weights = {"pe": 0.20, "pb": 0.20, "ps": 0.15, "ep": 0.15, "peg": 0.30}
     composite = weighted_avg(scores, weights)
 
     if composite is None:
@@ -121,6 +157,8 @@ def value_factor(code: str) -> dict:
             "pb_score": scores.get("pb"),
             "ps_score": scores.get("ps"),
             "ep_score": scores.get("ep"),
+            "peg_score": scores.get("peg"),
+            "profit_yoy": profit_yoy,
             "unavailable": unavailable_list(scores, reasons),
         },
     }

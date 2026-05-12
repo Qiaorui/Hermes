@@ -1,11 +1,11 @@
 """Composite multi-factor combination.
 
-Default weights follow academic consensus:
-  - Value × Quality × Growth are the three core A-share factors (equal weight)
-  - Momentum/Reversal is A-share specific (lower weight due to instability)
-  - Volatility and Liquidity are risk/auxiliary factors (supplementary)
+Default weights follow academic consensus adapted for A-shares, oriented toward long-term investing:
+  - Value, Growth, Quality, Dividend = four core factors (higher weight, 20+20+20+15=75%)
+  - Momentum, Capital Flow = timing factors (lower weight, short-term oriented)
+  - Volatility and Liquidity = risk/auxiliary factors (supplementary)
 
-Default weights: value=0.20, growth=0.20, quality=0.25, momentum=0.15, volatility=0.10, liquidity=0.10
+Default weights: value=0.20, growth=0.20, quality=0.20, dividend=0.15, momentum=0.06, capital_flow=0.06, volatility=0.06, liquidity=0.07
 Signal thresholds:
   - score >= 7 → "buy"
   - score >= 5 → "hold"
@@ -18,18 +18,22 @@ Strict data policy: None scores are excluded from weighted average with renormal
 from hermes.factors.value import value_factor
 from hermes.factors.growth import growth_factor
 from hermes.factors.quality import quality_factor
+from hermes.factors.dividend import dividend_factor
 from hermes.factors.momentum import momentum_factor
+from hermes.factors.capital_flow import capital_flow_factor
 from hermes.factors.volatility import volatility_factor
 from hermes.factors.liquidity import liquidity_factor
 from hermes.factors._utils import weighted_avg
 
-ALL_FACTORS = ["value", "growth", "quality", "momentum", "volatility", "liquidity"]
+ALL_FACTORS = ["value", "growth", "quality", "dividend", "momentum", "capital_flow", "volatility", "liquidity"]
 
 FACTOR_FUNCS = {
     "value": value_factor,
     "growth": growth_factor,
     "quality": quality_factor,
+    "dividend": dividend_factor,
     "momentum": momentum_factor,
+    "capital_flow": capital_flow_factor,
     "volatility": volatility_factor,
     "liquidity": liquidity_factor,
 }
@@ -37,16 +41,29 @@ FACTOR_FUNCS = {
 DEFAULT_WEIGHTS = {
     "value": 0.20,
     "growth": 0.20,
-    "quality": 0.25,
-    "momentum": 0.15,
-    "volatility": 0.10,
-    "liquidity": 0.10,
+    "quality": 0.20,
+    "dividend": 0.15,
+    "momentum": 0.06,
+    "capital_flow": 0.06,
+    "volatility": 0.06,
+    "liquidity": 0.07,
 }
+
+
+def _get_weights(weights: dict[str, float] | None = None) -> dict[str, float]:
+    """Resolve weights: explicit > config file > defaults."""
+    if weights:
+        return weights
+    try:
+        from hermes.config import get_factor_weights
+        return get_factor_weights()
+    except Exception:
+        return DEFAULT_WEIGHTS
 
 
 def composite_factor(code: str, weights: dict[str, float] | None = None) -> dict:
     """Compute composite multi-factor score with configurable weights."""
-    w = weights or DEFAULT_WEIGHTS
+    w = _get_weights(weights)
 
     # Compute all factor scores
     factor_results = {}

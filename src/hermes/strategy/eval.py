@@ -163,14 +163,23 @@ def get_triggers(code: str, analysis: dict) -> list[dict]:
         "description": f"止盈价 {round(price * profit_pct, 2)} 元（当前价 {price} 元，+{round((profit_pct-1)*100)}%）",
     })
 
-    # PE high alert
+    # PE high alert — industry-relative threshold (2x industry median)
     pe = quote.get("pe_dynamic")
     if pe is not None and pe > 0:
+        # Try industry-relative threshold first
+        from hermes.data.industry import get_industry_median_from_quote
+        ind_bench = get_industry_median_from_quote(quote)
+        pe_threshold = 50  # fallback absolute threshold
+        if ind_bench:
+            ind_pe = ind_bench.get("pe_ttm_median") or ind_bench.get("pe_median")
+            if ind_pe and ind_pe > 0:
+                pe_threshold = round(ind_pe * 2, 1)
+
         triggers.append({
             "code": code, "name": name, "source": "auto",
             "type": "pe_high",
-            "value": 50,
-            "description": f"PE超50预警（当前PE {round(pe, 1)}）",
+            "value": pe_threshold,
+            "description": f"PE超{pe_threshold}预警（当前PE {round(pe, 1)}，行业PE中位数 {ind_bench.get('pe_ttm_median') or ind_bench.get('pe_median') if ind_bench else 'N/A'}）",
         })
 
     # 52w low proximity

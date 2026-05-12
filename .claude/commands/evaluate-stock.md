@@ -60,9 +60,51 @@ $ARGUMENTS
    - 关注：机构持股集中度变化、大股东增减持动向、股东类型分布
 
 7. **因子评分**：调用 `mcp_factor_composite(code)` 获取
-   - 6因子（价值/成长/质量/动量/波动/流动性）综合评分
+   - 8因子（价值/成长/质量/股息/动量/资金流/波动/流动性）综合评分
    - 各因子覆盖率及缺失说明
    - 综合信号（buy/hold/watch/sell）
+
+8. **分红数据**：调用 `mcp_stock_dividend(code)` 获取
+   - 近年每股分红(DPS)、股息率、分红方案进度
+   - 分红连续性（连续分红年数）
+
+### 第2.5步：产业链与行业分析
+
+用 MCP 结构化工具获取产业链和行业数据：
+
+1. **产业链定位**：调用 `mcp_industry_chain(code)` 获取
+   - 上游行业：原材料/零部件供应商
+   - 下游行业：终端应用/客户
+   - 互补行业：配套产品/服务
+   - 替代行业：替代产品/竞争威胁
+   - 同行业竞争对手列表（按市值排名）
+   - 行业集中度（Top3占比）和公司在行业中的排名
+
+2. **行业基准**：调用 `mcp_industry_benchmarks(industry)` 获取
+   - 行业PE/PB/股息率中位数
+   - 行业营收/利润增速中位数
+
+3. **宏观环境**：调用 `mcp_macro_indicators()` 获取
+   - PMI（制造业+非制造业）
+   - CPI月率
+   - GDP季度增速（一二三产业拆分）
+   - LPR利率（1Y+5Y）
+   - M2同比增速
+   - 结合行业属性判断宏观对该行业的利好/利空
+
+### 第2.6步：分析师观点与盈利预测
+
+用 MCP 结构化工具获取专业分析师数据：
+
+1. **研报评级与盈利预测**：调用 `mcp_stock_analyst(code)` 获取
+   - 研报列表（评级、机构、日期、标题）
+   - 买入/增持/中性/减持/卖出的比例 → 机构共识评级
+   - EPS盈利预测（2026/2027/2028年）
+   - 行业平均EPS对比
+
+2. **机构参与度**：从 mcp_stock_analyst 返回的 institutional_participation 获取
+   - 机构参与度百分比
+   - 判断机构关注度
 
 ### 第3步：公告与事件
 
@@ -162,12 +204,39 @@ $ARGUMENTS
 | 价值 | X | X% | ... | ... |
 | 成长 | X | X% | ... | ... |
 | 质量 | X | X% | ... | ... |
+| 股息 | X | X% | ... | ... |
 | 动量 | X | X% | ... | ... |
+| 资金流 | X | X% | ... | ... |
 | 波动 | X | X% | ... | ... |
 | 流动性 | X | X% | ... | ... |
 | **综合** | **X** | — | **hold/buy/watch/sell** | ... |
 
 **缺失因子说明**：列出覆盖率低于100%的因子及其缺失原因。
+
+### 三.五、产业链定位与行业分析
+| 项目 | 详情 | 评价 |
+|------|------|------|
+| 上游行业 | {从mcp_industry_chain获取} | 供应商议价权强弱 |
+| 下游行业 | {从mcp_industry_chain获取} | 客户集中度与议价权 |
+| 互补行业 | {从mcp_industry_chain获取} | 配套生态 |
+| 替代威胁 | {从mcp_industry_chain获取} | 替代品威胁程度 |
+| 行业集中度 | Top3占比{X}% | 行业垄断/竞争格局 |
+| 公司行业排名 | 第{X}名/共{Y}家 | 领导者/跟随者/边缘 |
+| 行业PE中位数 | {X} | 行业估值水位 |
+| 行业景气度 | 增速{X}% | 行业上升/下行周期 |
+
+**产业链洞察**：基于上下游关系判断公司在产业链中的议价权、护城河强弱。
+
+### 三.六、分析师共识与盈利预测
+| 项目 | 详情 | 评价 |
+|------|------|------|
+| 机构共识评级 | 买入X%/增持Y%/中性Z% | 机构整体看好/看淡 |
+| EPS预测2026 | X元 (X家机构) | 低于/高于行业均值 |
+| EPS预测2027 | X元 | 增长预期 |
+| 最新研报 | {标题} ({机构}, {日期}) | 核心论点 |
+| 机构参与度 | X% | 机构关注程度 |
+
+**分析师分歧**：如机构评级有分歧，指出分歧点和核心争议。
 
 ### 四、题材与催化剂（1-10）
 | 项目 | 详情 | 评价 |
@@ -251,9 +320,12 @@ $ARGUMENTS
 - 网页搜索：用 MCP `web_search`（backend="google"，失败自动切 lite）
 - 新闻搜索：用 MCP `web_search_news`（失败会自动 fallback 到 web_search）
 - 网页内容：用 MCP `web_fetch_page`（指定 keywords 过滤相关片段）
-- 量化数据用 MCP `mcp_stock_quote`、`mcp_stock_kline`、`mcp_stock_fund_flow`、`mcp_stock_announcements`、`mcp_stock_valuation_history`、`mcp_stock_financial`、`mcp_stock_shareholders`、`mcp_stock_unlock_schedule`、`mcp_market_index`
+- 量化数据用 MCP `mcp_stock_quote`、`mcp_stock_kline`、`mcp_stock_fund_flow`、`mcp_stock_announcements`、`mcp_stock_valuation_history`、`mcp_stock_financial`、`mcp_stock_shareholders`、`mcp_stock_unlock_schedule`、`mcp_market_index`、`mcp_stock_dividend`
 - 因子评分用 MCP `mcp_factor_composite`、`mcp_factor_score`
+- 产业链用 MCP `mcp_industry_chain`
 - 行业基准用 MCP `mcp_industry_benchmarks`
+- 宏观指标用 MCP `mcp_macro_indicators`
+- 研报/分析师用 MCP `mcp_stock_analyst`
 - 报告存储用 MCP `save_evaluation_report`、`save_trigger_conditions`
 - 所有金额单位统一为"亿元"（mcp_stock_financial 已自动转换）
 - 报告末尾注明信息来源和时间

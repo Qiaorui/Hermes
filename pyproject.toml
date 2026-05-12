@@ -9,6 +9,7 @@ dependencies = [
     "ddgs>=9.14.2",
     "lxml>=6.1.0",
     "mcp>=1.27.1",
+    "pypdf>=5.1.0",
     "rich>=13.0.0",
     "requests>=2.33.1",
     "typer>=0.15.0",

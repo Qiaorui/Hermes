@@ -66,14 +66,23 @@ def add_holding(code: str, name: str, cost_price: float, shares: int, buy_date: 
     conn.execute("INSERT INTO holdings (code, name, cost_price, shares, buy_date) VALUES (?, ?, ?, ?, ?)",
                  (code, name, cost_price, shares, buy_date))
     conn.commit()
-    row = conn.execute("SELECT * FROM holdings WHERE code=? ORDER BY id DESC LIMIT 1", (code,)).fetchone()
+    row = conn.execute("SELECT * FROM holdings ORDER BY id DESC LIMIT 1").fetchone()
     conn.close()
     return Holding(**dict(row))
 
 
-def remove_holding(code: str) -> bool:
+def get_holding(id: int) -> Holding | None:
+    """Get a single holding by id."""
     conn = _get_conn()
-    cur = conn.execute("DELETE FROM holdings WHERE code=?", (code,))
+    row = conn.execute("SELECT * FROM holdings WHERE id=?", (id,)).fetchone()
+    conn.close()
+    return Holding(**dict(row)) if row else None
+
+
+def remove_holding(id: int) -> bool:
+    """Remove a holding by id."""
+    conn = _get_conn()
+    cur = conn.execute("DELETE FROM holdings WHERE id=?", (id,))
     conn.commit()
     conn.close()
     return cur.rowcount > 0
@@ -86,10 +95,10 @@ def list_holdings() -> list[Holding]:
     return [Holding(**dict(r)) for r in rows]
 
 
-def update_holding(code: str, cost_price: float | None = None, shares: int | None = None, buy_date: str | None = None) -> Holding | None:
-    """Update holding fields. Only updates fields that are not None."""
+def update_holding(id: int, cost_price: float | None = None, shares: int | None = None, buy_date: str | None = None) -> Holding | None:
+    """Update holding fields by id. Only updates fields that are not None."""
     conn = _get_conn()
-    row = conn.execute("SELECT * FROM holdings WHERE code=?", (code,)).fetchone()
+    row = conn.execute("SELECT * FROM holdings WHERE id=?", (id,)).fetchone()
     if not row:
         conn.close()
         return None
@@ -110,10 +119,10 @@ def update_holding(code: str, cost_price: float | None = None, shares: int | Non
         conn.close()
         return Holding(**dict(row))
 
-    values.append(code)
-    conn.execute(f"UPDATE holdings SET {', '.join(updates)} WHERE code=?", values)
+    values.append(id)
+    conn.execute(f"UPDATE holdings SET {', '.join(updates)} WHERE id=?", values)
     conn.commit()
-    row = conn.execute("SELECT * FROM holdings WHERE code=?", (code,)).fetchone()
+    row = conn.execute("SELECT * FROM holdings WHERE id=?", (id,)).fetchone()
     conn.close()
     return Holding(**dict(row))
 

@@ -17,6 +17,8 @@ from hermes.data.market import market_index
 mcp = FastMCP("web-search")
 
 
+# ── Web search tools ──
+
 @mcp.tool()
 def web_search(query: str, max_results: int = 10, backend: str = "google") -> str:
     """Search the web. Returns search results with titles, URLs, and descriptions.
@@ -53,6 +55,7 @@ def web_search_news(query: str, max_results: int = 10) -> str:
 @mcp.tool()
 def web_fetch_page(url: str, keywords: list[str] | None = None, max_length: int = 5000) -> str:
     """Fetch a web page and extract its text content. Useful for reading article details.
+    Automatically handles Chinese encoding (gb2312/gbk/utf-8). PDF URLs return metadata only.
 
     Args:
         url: The URL to fetch.
@@ -63,7 +66,21 @@ def web_fetch_page(url: str, keywords: list[str] | None = None, max_length: int 
     return json.dumps(result, ensure_ascii=False)
 
 
-# Stock data tools — wrap dict-returning functions with json.dumps
+@mcp.tool()
+def web_fetch_pdf(url: str, keywords: list[str] | None = None, max_length: int = 5000) -> str:
+    """Fetch a PDF file and extract its text content. Useful for reading research report PDFs.
+
+    Args:
+        url: The PDF URL to fetch (e.g. from mcp_stock_analyst's pdf_url field).
+        keywords: Optional list of keywords to filter relevant text snippets.
+        max_length: Maximum total text length to return (default 5000).
+    """
+    from hermes.api.search import fetch_pdf
+    result = fetch_pdf(url, keywords, max_length)
+    return json.dumps(result, ensure_ascii=False)
+
+
+# ── Stock data tools ──
 
 @mcp.tool()
 def mcp_stock_quote(code: str) -> str:
@@ -162,6 +179,131 @@ def mcp_market_index(days: int = 60) -> str:
 
 
 @mcp.tool()
+def mcp_stock_dividend(code: str) -> str:
+    """Get dividend history for a stock (dividend per share, yield, payout ratio, consistency).
+
+    Args:
+        code: Stock code, e.g. '002352'.
+    """
+    from hermes.data.dividend import stock_dividend
+    return json.dumps(stock_dividend(code), ensure_ascii=False)
+
+
+@mcp.tool()
+def mcp_industry_chain(code: str) -> str:
+    """Get industry chain analysis — supply chain positioning, peer companies, competitive landscape.
+
+    Args:
+        code: Stock code, e.g. '002352'.
+    """
+    from hermes.data.industry_chain import industry_chain
+    return json.dumps(industry_chain(code), ensure_ascii=False)
+
+
+@mcp.tool()
+def mcp_macro_indicators() -> str:
+    """Get latest macro economic indicators (PMI, CPI, GDP, LPR, M2)."""
+    from hermes.data.macro import macro_indicators
+    return json.dumps(macro_indicators(), ensure_ascii=False)
+
+
+@mcp.tool()
+def mcp_stock_analyst(code: str) -> str:
+    """Get analyst research data — research reports, profit forecasts, institutional participation.
+
+    Args:
+        code: Stock code, e.g. '002352'.
+    """
+    from hermes.data.analyst import stock_analyst
+    return json.dumps(stock_analyst(code), ensure_ascii=False)
+
+
+@mcp.tool()
+def mcp_dragon_tiger(date: str = "") -> str:
+    """Get dragon-tiger list (龙虎榜) — hot money activity for a trading day.
+
+    Args:
+        date: Trading date in YYYYMMDD format (empty = most recent available day).
+    """
+    from hermes.data.dragon_tiger import dragon_tiger_list
+    return json.dumps(dragon_tiger_list(date), ensure_ascii=False)
+
+
+@mcp.tool()
+def mcp_northbound_flow(days: int = 30) -> str:
+    """Get daily northbound capital net flow (沪股通+深股通合计).
+
+    Args:
+        days: Number of recent days (default 30, max 120).
+    """
+    from hermes.data.northbound import northbound_flow
+    return json.dumps(northbound_flow(days), ensure_ascii=False)
+
+
+# ── Industry & factor tools ──
+
+@mcp.tool()
+def mcp_industry_benchmarks(industry: str = "") -> str:
+    """Get industry median benchmarks (PE, PB, dividend_yield, profit YoY, revenue YoY).
+    Used for industry-neutralized factor scoring.
+
+    Args:
+        industry: Optional industry name to filter (empty = all industries).
+    """
+    from hermes.data.industry import get_industry_benchmarks
+    bench = get_industry_benchmarks()
+    if industry:
+        matched = {}
+        for k in bench:
+            if industry in k or k in industry:
+                matched[k] = bench[k]
+        if not matched:
+            return json.dumps({"error": f"No match for '{industry}'", "available": list(bench.keys())[:20]}, ensure_ascii=False)
+        return json.dumps(matched, ensure_ascii=False)
+    return json.dumps(bench, ensure_ascii=False)
+
+
+@mcp.tool()
+def mcp_factor_score(code: str, factors: str = "") -> str:
+    """Compute quantitative factor scores for a stock. Returns 0-10 scores per factor.
+
+    Args:
+        code: Stock code, e.g. '002352'.
+        factors: Comma-separated factor names (empty = all). Options: value,growth,quality,dividend,momentum,capital_flow,volatility,liquidity.
+    """
+    from hermes.factors import factor_score, ALL_FACTORS
+    names = [f.strip() for f in factors.split(",") if f.strip()] if factors else None
+    result = factor_score(code, names)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+def mcp_factor_composite(code: str, weights: str = "") -> str:
+    """Compute composite multi-factor score with configurable weights. Returns total score and signal.
+
+    Default weights: value=0.20, growth=0.20, quality=0.20, dividend=0.15, momentum=0.06, capital_flow=0.06, volatility=0.06, liquidity=0.07
+    Signal: score>=7→buy, >=5→hold, >=3→watch, <3→sell
+
+    Args:
+        code: Stock code, e.g. '002352'.
+        weights: Optional JSON dict of factor weights, e.g. '{"value":0.3,"growth":0.2,"quality":0.3}'.
+    """
+    from hermes.factors.composite import composite_factor, DEFAULT_WEIGHTS
+    import json as _json
+    if weights:
+        try:
+            w = _json.loads(weights)
+        except Exception:
+            w = DEFAULT_WEIGHTS
+    else:
+        w = None
+    result = composite_factor(code, w)
+    return json.dumps(result, ensure_ascii=False)
+
+
+# ── Report & trigger storage tools ──
+
+@mcp.tool()
 def save_evaluation_report(code: str, content: str, score: int = 0) -> str:
     """Save an evaluation report to the portfolio database. Called by the evaluate-stock skill after generating a full report.
 
@@ -197,71 +339,7 @@ def save_trigger_conditions(code: str, name: str, triggers_json: str) -> str:
     return json.dumps({"status": "saved", "code": code, "count": len(models)}, ensure_ascii=False)
 
 
-@mcp.tool()
-def mcp_industry_benchmarks(industry: str = "") -> str:
-    """Get industry median benchmarks (PE, PB, profit YoY, revenue YoY).
-    Used for industry-neutralized factor scoring.
-
-    Args:
-        industry: Optional industry name to filter (empty = all industries).
-    """
-    from hermes.data.industry import get_industry_benchmarks
-    bench = get_industry_benchmarks()
-    if industry:
-        # Direct + partial match
-        matched = {}
-        for k in bench:
-            if industry in k or k in industry:
-                matched[k] = bench[k]
-        if not matched:
-            return json.dumps({"error": f"No match for '{industry}'", "available": list(bench.keys())[:20]}, ensure_ascii=False)
-        return json.dumps(matched, ensure_ascii=False)
-    return json.dumps(bench, ensure_ascii=False)
-
-
-@mcp.tool()
-def mcp_factor_score(code: str, factors: str = "") -> str:
-    """Compute quantitative factor scores for a stock. Returns 0-10 scores per factor.
-
-    Args:
-        code: Stock code, e.g. '002352'.
-        factors: Comma-separated factor names (empty = all). Options: value,growth,quality,momentum,volatility,liquidity.
-    """
-    from hermes.factors import factor_score, ALL_FACTORS
-    names = [f.strip() for f in factors.split(",") if f.strip()] if factors else None
-    result = factor_score(code, names)
-    return json.dumps(result, ensure_ascii=False)
-
-
-@mcp.tool()
-def mcp_factor_composite(code: str, weights: str = "") -> str:
-    """Compute composite multi-factor score with configurable weights. Returns total score and signal.
-
-    Default weights: value=0.20, growth=0.20, quality=0.25, momentum=0.15, volatility=0.10, liquidity=0.10
-    Signal: score>=7→buy, >=5→hold, >=3→watch, <3→sell
-
-    Args:
-        code: Stock code, e.g. '002352'.
-        weights: Optional JSON dict of factor weights, e.g. '{"value":0.3,"growth":0.2,"quality":0.3}'.
-    """
-    from hermes.factors.composite import composite_factor, DEFAULT_WEIGHTS
-    import json as _json
-    if weights:
-        try:
-            w = _json.loads(weights)
-        except Exception:
-            w = DEFAULT_WEIGHTS
-    else:
-        w = None
-    result = composite_factor(code, w)
-    return json.dumps(result, ensure_ascii=False)
-
-
-if __name__ == "__main__":
-    mcp.run()
-
-
-# ── Portfolio CRUD MCP tools ──
+# ── Portfolio CRUD tools ──
 
 @mcp.tool()
 def mcp_add_holding(code: str, name: str, cost_price: float, shares: int, buy_date: str = "") -> str:
@@ -279,27 +357,27 @@ def mcp_add_holding(code: str, name: str, cost_price: float, shares: int, buy_da
     if not buy_date:
         buy_date = str(_date.today())
     h = add_holding(code, name, cost_price, shares, buy_date)
-    return json.dumps({"status": "added", "code": h.code, "name": h.name, "cost": h.cost_price, "shares": h.shares}, ensure_ascii=False)
+    return json.dumps({"status": "added", "id": h.id, "code": h.code, "name": h.name, "cost": h.cost_price, "shares": h.shares}, ensure_ascii=False)
 
 
 @mcp.tool()
-def mcp_remove_holding(code: str) -> str:
-    """Remove a stock from portfolio holdings.
+def mcp_remove_holding(id: int) -> str:
+    """Remove a holding by ID.
 
     Args:
-        code: Stock code to remove.
+        id: Holding ID (get from mcp_list_holdings).
     """
     from hermes.portfolio.db import remove_holding
-    ok = remove_holding(code)
-    return json.dumps({"status": "removed" if ok else "not_found", "code": code}, ensure_ascii=False)
+    ok = remove_holding(id)
+    return json.dumps({"status": "removed" if ok else "not_found", "id": id}, ensure_ascii=False)
 
 
 @mcp.tool()
 def mcp_list_holdings() -> str:
-    """List all portfolio holdings with code, name, cost, shares, buy_date."""
+    """List all portfolio holdings with id, code, name, cost, shares, buy_date."""
     from hermes.portfolio.db import list_holdings
     holdings = list_holdings()
-    items = [{"code": h.code, "name": h.name, "cost_price": h.cost_price, "shares": h.shares, "buy_date": h.buy_date} for h in holdings]
+    items = [{"id": h.id, "code": h.code, "name": h.name, "cost_price": h.cost_price, "shares": h.shares, "buy_date": h.buy_date} for h in holdings]
     return json.dumps({"count": len(items), "holdings": items}, ensure_ascii=False)
 
 
@@ -362,3 +440,7 @@ def mcp_get_report(code: str) -> str:
     if not r:
         return json.dumps({"error": f"No report found for {code}"}, ensure_ascii=False)
     return json.dumps({"code": r.code, "score": r.score, "created_at": r.created_at, "content": r.content}, ensure_ascii=False)
+
+
+if __name__ == "__main__":
+    mcp.run()

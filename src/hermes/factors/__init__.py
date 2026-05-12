@@ -6,12 +6,15 @@ Each factor module returns a dict with:
   - "details": sub-factor breakdown
 
 Factors reference Barra CNE5S style factor framework, adapted for A-share market.
+8 factors: value, growth, quality, dividend, momentum, capital_flow, volatility, liquidity
 """
 
 from hermes.factors.value import value_factor
 from hermes.factors.growth import growth_factor
 from hermes.factors.quality import quality_factor
+from hermes.factors.dividend import dividend_factor
 from hermes.factors.momentum import momentum_factor
+from hermes.factors.capital_flow import capital_flow_factor
 from hermes.factors.volatility import volatility_factor
 from hermes.factors.liquidity import liquidity_factor
 from hermes.factors.composite import composite_factor, ALL_FACTORS, FACTOR_FUNCS
