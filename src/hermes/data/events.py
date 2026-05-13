@@ -6,41 +6,19 @@ Disk cache at .hermes/cache/event_calendar.json with 2-hour TTL.
 Strict data policy: no fallback values. Missing data → None.
 """
 
-import json
-import time
 import logging
 from hermes.config import CONFIG_DIR
+from hermes.data.cache import DiskCache
 
 log = logging.getLogger(__name__)
 
-CACHE_DIR = CONFIG_DIR / "cache"
-CACHE_FILE = CACHE_DIR / "event_calendar.json"
-CACHE_TTL = 2 * 3600
-
-
-def _save_cache(data: dict):
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    payload = {"timestamp": time.time(), "data": data}
-    CACHE_FILE.write_text(json.dumps(payload, ensure_ascii=False))
-
-
-def _load_cache() -> dict | None:
-    if not CACHE_FILE.exists():
-        return None
-    try:
-        payload = json.loads(CACHE_FILE.read_text())
-        if time.time() - payload.get("timestamp", 0) > CACHE_TTL:
-            return None
-        return payload.get("data")
-    except Exception:
-        return None
+_cache = DiskCache(CONFIG_DIR / "cache", "event_calendar.json", ttl=2 * 3600)
 
 
 def _fetch_disclosure(code: str) -> dict | None:
     """Fetch upcoming earnings disclosure dates for a stock."""
     try:
         import akshare as ak
-        # Get scheduled disclosure dates
         df = ak.stock_em_disclosure(date="")
         if df is None or len(df) == 0:
             return None
@@ -86,7 +64,7 @@ def corporate_events(code: str) -> dict:
 
     Returns dict with earnings disclosure and dividend payment info.
     """
-    cached = _load_cache()
+    cached = _cache.load()
     if cached and code in cached:
         return cached[code]
 
@@ -100,5 +78,5 @@ def corporate_events(code: str) -> dict:
     if cached is None:
         cached = {}
     cached[code] = result
-    _save_cache(cached)
+    _cache.save(cached)
     return result

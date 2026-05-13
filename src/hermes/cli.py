@@ -7,17 +7,15 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
-from hermes.strategy.eval import analyze, get_triggers
-from hermes.factors import factor_score, ALL_FACTORS
+from hermes.factors import factor_score
 from hermes.factors.composite import composite_factor
 from hermes.portfolio.db import (
     add_holding, remove_holding, list_holdings, update_holding, get_holding,
     add_watch, remove_watch, list_watchlist,
-    add_trigger, remove_trigger, list_triggers, save_triggers,
+    add_trigger, remove_trigger, list_triggers,
     save_report, get_report,
     add_transaction, list_transactions,
 )
-from hermes.portfolio.models import TriggerCondition
 from hermes.data.quote import stock_quote
 from hermes.data.market import market_index
 from hermes.notify.cli_notifier import notify, notify_trigger
@@ -167,23 +165,15 @@ def patrol():
 @app.command()
 def evaluate(code: str):
     """Evaluate a single stock. Runs full analysis, saves report and triggers."""
-    typer.echo(f"正在评估 {code}...")
-    analysis = analyze(code)
-    signal = analysis.get("signal", "hold")
-    report = analysis.get("report", "")
-    data = analysis.get("data", {})
+    from hermes.service.portfolio import evaluate_stock
+    result = evaluate_stock(code)
+    signal = result["signal"]
+    score = result["score"]
+    report = result["report"]
 
     # Get stock name
-    quote = data.get("quote", {})
-    name = quote.get("name", code)
-
-    # Save report
-    save_report(code, report, analysis.get("score", 0))
-
-    # Generate and save triggers
-    triggers_raw = get_triggers(code, analysis)
-    trigger_models = [TriggerCondition(**t) for t in triggers_raw]
-    save_triggers(trigger_models)
+    q = stock_quote(code)
+    name = q.get("name", code) if "error" not in q else code
 
     # Print full report with Rich
     console.print(Panel(report, title=f"{name}（{code}）评估报告", border_style="cyan"))
@@ -192,19 +182,9 @@ def evaluate(code: str):
     signal_icon = {"buy": "▲", "hold": "●", "watch": "◆", "sell": "▼"}.get(signal, "?")
     signal_color = {"buy": "green", "hold": "cyan", "watch": "yellow", "sell": "red"}.get(signal, "white")
     console.print(Panel(
-        Text(f"{signal_icon} 信号: {signal.upper()} | 评分: {analysis.get('score', 0)}/50", style=f"bold {signal_color}"),
+        Text(f"{signal_icon} 信号: {signal.upper()} | 评分: {score}/50", style=f"bold {signal_color}"),
         title="综合信号", border_style=signal_color,
     ))
-
-    # Triggers
-    if triggers_raw:
-        t_table = Table(title="触发条件", show_lines=False, title_style="bold red")
-        t_table.add_column("类型", min_width=15)
-        t_table.add_column("阈值", justify="right", min_width=10)
-        t_table.add_column("描述", min_width=30)
-        for t in triggers_raw:
-            t_table.add_row(t["type"], str(t["value"]), t["description"])
-        console.print(t_table)
 
 
 @app.command()
@@ -224,97 +204,14 @@ def screen(
     json_output: bool = typer.Option(False, "--json", "-j", help="JSON格式输出"),
 ):
     """Screen stocks by criteria. Returns filtered ranked list."""
-    from hermes.api.eastmoney import em_get, parse_secid
+    from hermes.data.screen import screen_stocks
 
-    # Fetch A-share stock list (add f55 for turnover_rate)
-    stocks = []
-    for fs in ["m:1+t:2,m:0+t:6,m:0+t:80,m:1+t:23"]:
-        url = f"http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz={limit*3}&po=1&np=1&fltt=2&invt=2&fs={fs}&fields=f2,f3,f12,f14,f9,f20,f23,f55,f115,f169,f170,f100"
-        data = em_get(url)
-        if data and data.get("data") and data["data"].get("diff"):
-            for item in data["data"]["diff"]:
-                name = item.get("f14", "")
-                code = item.get("f12", "")
-                price = item.get("f2", "-")
-                change_pct = item.get("f3", "-")
-                pe = item.get("f9", "-")
-                market_cap = item.get("f20", "-")
-                pb = item.get("f23", "-")
-                turnover_rate = item.get("f55", "-")
-                profit_yoy_pct = item.get("f115", "-")
-                revenue_yoy_pct = item.get("f169", "-")
-                industry_name = item.get("f100", "")
-
-                if price == "-" or pe == "-" or code == "":
-                    continue
-
-                try:
-                    pe_val = float(pe)
-                    if pe_max > 0 and pe_val > pe_max:
-                        continue
-                    if pe_min > 0 and pe_val < pe_min:
-                        continue
-                except (ValueError, TypeError):
-                    continue
-
-                # PB filter
-                if pb_max > 0 or pb_min > 0:
-                    try:
-                        pb_val = float(pb)
-                        if pb_max > 0 and pb_val > pb_max:
-                            continue
-                        if pb_min > 0 and pb_val < pb_min:
-                            continue
-                    except (ValueError, TypeError):
-                        continue
-
-                # Market cap filter (in 亿元)
-                if market_cap_min > 0 or market_cap_max > 0:
-                    try:
-                        cap_yi = float(market_cap) / 1e8
-                        if market_cap_min > 0 and cap_yi < market_cap_min:
-                            continue
-                        if market_cap_max > 0 and cap_yi > market_cap_max:
-                            continue
-                    except (ValueError, TypeError):
-                        continue
-
-                # Turnover rate filter
-                if turnover_min > 0:
-                    try:
-                        if float(turnover_rate) < turnover_min:
-                            continue
-                    except (ValueError, TypeError):
-                        continue
-
-                if profit_yoy_min > 0:
-                    try:
-                        if float(profit_yoy_pct) < profit_yoy_min:
-                            continue
-                    except (ValueError, TypeError):
-                        continue
-
-                if revenue_yoy_min > 0:
-                    try:
-                        if float(revenue_yoy_pct) < revenue_yoy_min:
-                            continue
-                    except (ValueError, TypeError):
-                        continue
-
-                if industry and industry_name != industry:
-                    continue
-
-                stocks.append({
-                    "code": code, "name": name, "price": price,
-                    "change_pct": change_pct, "pe": pe, "pb": pb,
-                    "market_cap_yi": round(float(market_cap) / 1e8, 1) if market_cap != "-" else 0,
-                    "turnover_rate": turnover_rate,
-                    "profit_yoy_pct": profit_yoy_pct, "revenue_yoy_pct": revenue_yoy_pct,
-                    "industry": industry_name,
-                })
-
-    stocks.sort(key=lambda x: float(x.get("profit_yoy_pct", 0)) if x.get("profit_yoy_pct", "-") != "-" else -999, reverse=True)
-    stocks = stocks[:limit]
+    stocks = screen_stocks(
+        industry=industry, pe_max=pe_max, pe_min=pe_min,
+        pb_max=pb_max, pb_min=pb_min, cap_min=market_cap_min, cap_max=market_cap_max,
+        turnover_min=turnover_min, profit_yoy_min=profit_yoy_min,
+        revenue_yoy_min=revenue_yoy_min, limit=limit,
+    )
 
     if not stocks:
         typer.echo("未找到符合条件的股票")
@@ -525,12 +422,11 @@ def portfolio_log(
 @portfolio_app.command("performance")
 def portfolio_performance():
     """Show portfolio performance vs benchmark (CSI 300)."""
-    holdings = list_holdings()
-    if not holdings:
-        typer.echo("暂无持仓")
+    from hermes.service.portfolio import portfolio_performance_data
+    data = portfolio_performance_data()
+    if "error" in data:
+        typer.echo(data["error"])
         return
-
-    from hermes.data.kline import stock_kline
 
     p_table = Table(title="持仓收益 vs 基准", show_lines=False, title_style="bold cyan", expand=True)
     p_table.add_column("代码", style="cyan", min_width=8)
@@ -542,66 +438,32 @@ def portfolio_performance():
     p_table.add_column("同期基准%", justify="right", min_width=10)
     p_table.add_column("超额%", justify="right", min_width=10)
 
-    # CSI 300 kline for benchmark
-    bench_kline = stock_kline("000300")
-
-    total_pnl_pct = 0.0
-    total_bench_pct = 0.0
-    total_weight = 0.0
-
-    for h in holdings:
-        q = stock_quote(h.code)
-        if "error" in q:
-            p_table.add_row(h.code, h.name, h.buy_date, str(h.cost_price), "-", "-", "-", "-")
+    for item in data["items"]:
+        pnl = item.get("pnl_pct")
+        bench = item.get("bench_pct")
+        excess = item.get("excess")
+        if pnl is None:
+            p_table.add_row(item["code"], item["name"], item["buy_date"], str(item["cost"]), "-", "-", "-", "-")
             continue
-        current_price = q.get("price", 0)
-        holding_pnl = round((current_price - h.cost_price) / h.cost_price * 100, 2) if h.cost_price > 0 else 0
-
-        # Find benchmark price at buy_date
-        bench_return = 0.0
-        if bench_kline and "error" not in bench_kline:
-            klines = bench_kline.get("klines", [])
-            buy_date_str = h.buy_date
-            # Find closest kline date before buy_date
-            buy_idx = None
-            for i, k in enumerate(klines):
-                if k.get("date", "") <= buy_date_str:
-                    buy_idx = i
-            latest_bench = klines[-1].get("close", 0) if klines else 0
-            if buy_idx is not None and latest_bench > 0:
-                bench_at_buy = klines[buy_idx].get("close", 0)
-                if bench_at_buy > 0:
-                    bench_return = round((latest_bench - bench_at_buy) / bench_at_buy * 100, 2)
-
-        excess = round(holding_pnl - bench_return, 2)
-        weight = h.cost_price * h.shares
-        total_pnl_pct += holding_pnl * weight
-        total_bench_pct += bench_return * weight
-        total_weight += weight
-
-        c_h = "green" if holding_pnl >= 0 else "red"
-        c_b = "green" if bench_return >= 0 else "red"
+        c_h = "green" if pnl >= 0 else "red"
+        c_b = "green" if bench >= 0 else "red"
         c_e = "green" if excess >= 0 else "red"
         p_table.add_row(
-            h.code, h.name, h.buy_date, str(h.cost_price), str(current_price),
-            Text(f"{holding_pnl:+}%", style=c_h), Text(f"{bench_return:+}%", style=c_b), Text(f"{excess:+}%", style=c_e),
+            item["code"], item["name"], item["buy_date"], str(item["cost"]), str(item["price"]),
+            Text(f"{pnl:+}%", style=c_h), Text(f"{bench:+}%", style=c_b), Text(f"{excess:+}%", style=c_e),
         )
 
     console.print(p_table)
-
-    if total_weight > 0:
-        weighted_pnl = round(total_pnl_pct / total_weight, 2)
-        weighted_bench = round(total_bench_pct / total_weight, 2)
-        weighted_excess = round(weighted_pnl - weighted_bench, 2)
-        typer.echo(f"组合加权收益: {weighted_pnl:+}% | 基准收益: {weighted_bench:+}% | 超额收益: {weighted_excess:+}%")
+    typer.echo(f"组合加权收益: {data['weighted_pnl_pct']:+}% | 基准收益: {data['weighted_bench_pct']:+}% | 超额收益: {data['weighted_excess_pct']:+}%")
 
 
 @portfolio_app.command("dividend")
 def portfolio_dividend():
     """Show dividend income summary for all holdings."""
-    holdings = list_holdings()
-    if not holdings:
-        typer.echo("暂无持仓")
+    from hermes.service.portfolio import portfolio_dividend_data
+    data = portfolio_dividend_data()
+    if "error" in data:
+        typer.echo(data["error"])
         return
 
     d_table = Table(title="分红收益汇总", show_lines=False, title_style="bold green", expand=True)
@@ -613,41 +475,27 @@ def portfolio_dividend():
     d_table.add_column("股息率%", justify="right", min_width=8)
     d_table.add_column("连续年份", justify="right", min_width=8)
 
-    total_dividend = 0.0
-    for h in holdings:
-        from hermes.data.dividend import stock_dividend
-        div = stock_dividend(h.code)
-        if "error" in div:
-            d_table.add_row(h.code, h.name, str(h.shares), "-", "-", "-", "-")
+    for item in data["items"]:
+        dps = item.get("dps")
+        if dps is None:
+            d_table.add_row(item["code"], item["name"], str(item["shares"]), "-", "-", "-", "-")
             continue
-        dps = div.get("latest_dps") or 0
-        div_income = round(dps * h.shares, 2)
-        total_dividend += div_income
-        yield_pct = div.get("dividend_yield") or 0
-        consecutive = div.get("consecutive_years") or 0
-        d_table.add_row(h.code, h.name, str(h.shares), str(dps), str(div_income), str(yield_pct), str(consecutive))
+        yield_pct = item.get("yield_pct") or 0
+        consecutive = item.get("consecutive_years") or 0
+        d_table.add_row(item["code"], item["name"], str(item["shares"]), str(dps), str(item["dividend_income"]), str(yield_pct), str(consecutive))
 
     console.print(d_table)
-    typer.echo(f"预计年度分红收益合计: {round(total_dividend, 2)}元 ({round(total_dividend/10000, 2)}万)")
+    typer.echo(f"预计年度分红收益合计: {data['total_dividend_income']}元 ({data['total_wan']}万)")
 
 
 @portfolio_app.command("concentration")
 def portfolio_concentration():
     """Show portfolio industry concentration analysis."""
-    holdings = list_holdings()
-    if not holdings:
-        typer.echo("暂无持仓")
+    from hermes.service.portfolio import portfolio_concentration_data
+    data = portfolio_concentration_data()
+    if "error" in data:
+        typer.echo(data["error"])
         return
-
-    # Group by industry
-    ind_map: dict[str, list] = {}
-    for h in holdings:
-        q = stock_quote(h.code)
-        ind = q.get("industry", "未知") if "error" not in q else "未知"
-        mv = q.get("price", 0) * h.shares if "error" not in q else 0
-        ind_map.setdefault(ind, []).append({"code": h.code, "name": h.name, "mv": mv})
-
-    total_mv = sum(item["mv"] for items in ind_map.values() for item in items)
 
     c_table = Table(title="行业集中度", show_lines=False, title_style="bold cyan", expand=True)
     c_table.add_column("行业", min_width=10)
@@ -656,23 +504,17 @@ def portfolio_concentration():
     c_table.add_column("占比%", justify="right", min_width=8)
     c_table.add_column("股票", min_width=20)
 
-    # Sort by market value descending
-    sorted_inds = sorted(ind_map.items(), key=lambda x: sum(i["mv"] for i in x[1]), reverse=True)
-
-    for ind, items in sorted_inds:
-        ind_mv = sum(i["mv"] for i in items)
-        pct = round(ind_mv / total_mv * 100, 1) if total_mv > 0 else 0
-        stocks_str = ", ".join(f"{i['name']}" for i in items)
-        c_table.add_row(ind, str(len(items)), str(round(ind_mv / 10000, 2)), Text(f"{pct}%", style="bold" if pct > 30 else ""), stocks_str)
+    for ind in data["industries"]:
+        c_table.add_row(
+            ind["industry"], str(ind["count"]), str(ind["market_value_wan"]),
+            Text(f"{ind['pct']}%", style="bold" if ind["pct"] > 30 else ""),
+            ", ".join(ind["stocks"]),
+        )
 
     console.print(c_table)
 
-    # Warning if any industry > 30%
-    for ind, items in sorted_inds:
-        ind_mv = sum(i["mv"] for i in items)
-        pct = round(ind_mv / total_mv * 100, 1) if total_mv > 0 else 0
-        if pct > 30:
-            typer.echo(f"⚠ 行业 '{ind}' 占比 {pct}%，超过30%阈值，建议分散配置")
+    for w in data.get("warnings", []):
+        typer.echo(f"⚠ 行业 '{w['industry']}' 占比 {w['pct']}%，超过30%阈值，建议分散配置")
 
 
 @portfolio_app.command("unwatch")
@@ -769,72 +611,18 @@ def portfolio_remove(id: int):
 @portfolio_app.command("check")
 def portfolio_check():
     """Check all holdings and watchlist against trigger conditions."""
-    holdings = list_holdings()
-    watchlist = list_watchlist()
-    all_codes = [(h.code, h.name) for h in holdings] + [(w.code, w.name) for w in watchlist]
-
-    if not all_codes:
-        typer.echo("暂无持仓和关注")
+    from hermes.service.portfolio import patrol_data
+    result = patrol_data()
+    if "error" in result:
+        typer.echo(result["error"])
         return
 
-    typer.echo(f"正在巡检 {len(all_codes)} 只股票...")
+    typer.echo(f"正在巡检 {result['checked']} 只股票...")
 
-    signals = []
-    for code, name in all_codes:
-        # Get current quote
-        q = stock_quote(code)
-        if "error" in q:
-            typer.echo(f"  {code}: 无法获取行情")
-            continue
+    for a in result["alerts"]:
+        notify_trigger(a["code"], a["name"], a["type"], a["threshold"], f"当前值 {a['current']} 阈值 {a['threshold']}")
 
-        current_price = q.get("price", 0)
-        triggers = list_triggers(code)
-
-        triggered = False
-        for t in triggers:
-            if t.type == "price_stop_loss" and current_price <= t.value:
-                notify_trigger(code, name, "止损", t.value, f"当前价 {current_price} <= 止损价 {t.value}")
-                triggered = True
-            elif t.type == "price_stop_profit" and current_price >= t.value:
-                notify_trigger(code, name, "止盈", t.value, f"当前价 {current_price} >= 止盈价 {t.value}")
-                triggered = True
-            elif t.type == "price_stop_loss_adaptive" and current_price <= t.value:
-                notify_trigger(code, name, "动态止损", t.value, f"当前价 {current_price} <= 动态止损线 {t.value}")
-                triggered = True
-            elif t.type == "price_stop_profit_adaptive" and current_price >= t.value:
-                notify_trigger(code, name, "动态止盈", t.value, f"当前价 {current_price} >= 动态止盈线 {t.value}")
-                triggered = True
-            elif t.type == "pe_high":
-                pe = q.get("pe_dynamic")
-                if pe and pe >= t.value:
-                    notify_trigger(code, name, "PE预警", t.value, f"当前PE {pe} >= 预警值 {t.value}")
-                    triggered = True
-            elif t.type == "near_52w_low" and current_price <= t.value:
-                notify_trigger(code, name, "接近52周低点", t.value, f"当前价 {current_price} <= 52周低点线 {t.value}")
-                triggered = True
-            elif t.type == "fund_flow_negative":
-                from hermes.data.fund_flow import stock_fund_flow
-                ff = stock_fund_flow(code)
-                if "error" not in ff:
-                    items = ff.get("fund_flow", [])
-                    if items:
-                        latest_main_net = items[0].get("main_net_inflow", 0)
-                        if latest_main_net is not None and latest_main_net < t.value:
-                            notify_trigger(code, name, "资金流出", t.value, f"主力净流入 {latest_main_net}万 < 阈值 {t.value}万")
-                            triggered = True
-
-        if not triggered:
-            signal = "hold"
-            profit_yoy = q.get("profit_yoy")
-            if profit_yoy is not None and profit_yoy > 15:
-                signal = "buy"
-            elif profit_yoy is not None and profit_yoy < -20:
-                signal = "sell"
-            notify(code, name, signal, f"价格 {current_price} | PE {q.get('pe_dynamic')} | 净利同比 {q.get('profit_yoy')}%")
-
-        signals.append({"code": code, "name": name, "price": current_price, "triggered": triggered})
-
-    typer.echo("\n巡检完成")
+    typer.echo(f"\n巡检完成: {result['alert_count']} 个预警")
 
 
 # ─── Config commands ───

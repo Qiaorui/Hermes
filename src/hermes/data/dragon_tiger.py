@@ -76,3 +76,19 @@ def dragon_tiger_list(date_str: str = "") -> dict:
     except Exception as e:
         log.warning(f"akshare dragon_tiger failed for {date_str}: {e}")
         return {"error": f"Dragon-tiger data unavailable for {date_str}", "date": date_str}
+
+
+def dragon_tiger_for_stock(code: str) -> dict | None:
+    """Get dragon-tiger data for a specific stock. Returns None if stock not on list.
+
+    Fetches the full list for the most recent trading day, then filters for the stock code.
+    Most stocks are not on the list any given day, so this returns None quickly.
+    """
+    full = dragon_tiger_list()
+    if "error" in full:
+        return None
+
+    for entry in full.get("entries", []):
+        if entry.get("code") == code:
+            return {"date": full["date"], "entry": entry}
+    return None

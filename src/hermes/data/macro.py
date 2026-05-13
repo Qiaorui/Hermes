@@ -12,34 +12,13 @@ Disk cache at .hermes/cache/macro_indicators.json (4-hour TTL).
 Strict data policy: returns latest available data. Missing indicators → None.
 """
 
-import json
-import time
 import logging
 from hermes.config import CONFIG_DIR
+from hermes.data.cache import DiskCache
 
 log = logging.getLogger(__name__)
 
-CACHE_DIR = CONFIG_DIR / "cache"
-CACHE_FILE = CACHE_DIR / "macro_indicators.json"
-CACHE_TTL = 4 * 3600
-
-
-def _save_cache(data: dict):
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    payload = {"timestamp": time.time(), "data": data}
-    CACHE_FILE.write_text(json.dumps(payload, ensure_ascii=False))
-
-
-def _load_cache() -> dict | None:
-    if not CACHE_FILE.exists():
-        return None
-    try:
-        payload = json.loads(CACHE_FILE.read_text())
-        if time.time() - payload.get("timestamp", 0) > CACHE_TTL:
-            return None
-        return payload.get("data")
-    except Exception:
-        return None
+_cache = DiskCache(CONFIG_DIR / "cache", "macro_indicators.json", ttl=4 * 3600)
 
 
 def _fetch_pmi() -> dict | None:
@@ -147,7 +126,7 @@ def macro_indicators() -> dict:
     Uses disk cache (4h TTL) to avoid repeated akshare API calls.
     Returns PMI, CPI, GDP, LPR, M2 data.
     """
-    cached = _load_cache()
+    cached = _cache.load()
     if cached:
         return cached
 
@@ -160,5 +139,5 @@ def macro_indicators() -> dict:
     }
 
     # Cache even if some indicators failed
-    _save_cache(result)
+    _cache.save(result)
     return result

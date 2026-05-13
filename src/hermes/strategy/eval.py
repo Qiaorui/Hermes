@@ -34,7 +34,7 @@ from hermes.data.macro import macro_indicators
 from hermes.data.analyst import stock_analyst
 from hermes.data.northbound import northbound_flow
 from hermes.data.events import corporate_events
-from hermes.data.dragon_tiger import dragon_tiger_list
+from hermes.data.dragon_tiger import dragon_tiger_for_stock
 from hermes.strategy.base import BUY, SELL, HOLD, WATCH
 
 
@@ -132,7 +132,7 @@ def analyze(code: str) -> dict:
     analyst_data = stock_analyst(code)
     northbound = northbound_flow(30)
     events = corporate_events(code)
-    dragon_tiger = dragon_tiger_list()
+    dragon_tiger = dragon_tiger_for_stock(code) or {}
 
     data = {
         "quote": quote,
@@ -170,8 +170,8 @@ def analyze(code: str) -> dict:
             signal = factor_signal
             signal_source = "factor-based"
             data["factor"] = factor_result
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning(f"Factor composite failed for {code}: {e}")
 
     # Mechanical fallback
     if signal_source == "mechanical":
@@ -312,13 +312,10 @@ def analyze(code: str) -> dict:
         report += f"| 北向资金 | 最新{_wan(nb_net)}{_flow_dir(nb_net)}{cum_str} | {'北向流入' if nb_net is not None and nb_net > 0 else '北向流出' if nb_net is not None else 'N/A'} |\n"
 
     # 龙虎榜 — check if this stock appeared on recent dragon-tiger list
-    dt_data = dragon_tiger if "error" not in dragon_tiger else {}
-    dt_entries = dt_data.get("entries", [])
-    dt_stock = [e for e in dt_entries if e.get("code") == code]
-    if dt_stock:
-        e = dt_stock[0]
-        dt_net = e.get("net_amount")
-        report += f"| 龙虎榜 | {_wan(dt_net)}净额 ({e.get('reason', 'N/A')}) | {'游资做多' if dt_net is not None and dt_net > 0 else '游资做空'} |\n"
+    dt_entry = dragon_tiger.get("entry") if dragon_tiger else None
+    if dt_entry:
+        dt_net = dt_entry.get("net_amount")
+        report += f"| 龙虎榜 | {_wan(dt_net)}净额 ({dt_entry.get('reason', 'N/A')}) | {'游资做多' if dt_net is not None and dt_net > 0 else '游资做空'} |\n"
 
     # ── 三、量化因子评分 ──
     report += "\n### 三、量化因子评分\n\n"

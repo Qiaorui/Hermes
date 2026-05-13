@@ -16,12 +16,11 @@ import logging
 import statistics
 from hermes.api.eastmoney import em_get
 from hermes.config import CONFIG_DIR
+from hermes.data.cache import DiskCache
 
 log = logging.getLogger(__name__)
 
-CACHE_DIR = CONFIG_DIR / "cache"
-CACHE_FILE = CACHE_DIR / "industry_benchmarks.json"
-CACHE_TTL = 4 * 3600  # 4 hours
+_cache = DiskCache(CONFIG_DIR / "cache", "industry_benchmarks.json", ttl=4 * 3600)
 
 
 def _fetch_from_akshare() -> dict:
@@ -151,35 +150,9 @@ def _merge_benchmarks(akshare_data: dict, push2_data: dict) -> dict:
     return merged
 
 
-def _save_disk_cache(data: dict):
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    payload = {"timestamp": time.time(), "source": "akshare+push2", "benchmarks": data}
-    CACHE_FILE.write_text(json.dumps(payload, ensure_ascii=False))
-    log.info(f"Saved {len(data)} industry benchmarks to {CACHE_FILE}")
-
-
-def _load_disk_cache() -> dict | None:
-    if not CACHE_FILE.exists():
-        return None
-    try:
-        payload = json.loads(CACHE_FILE.read_text())
-        ts = payload.get("timestamp", 0)
-        if time.time() - ts > CACHE_TTL:
-            log.info("Industry benchmarks cache expired (>4h)")
-            return None
-        data = payload.get("benchmarks", {})
-        if not data:
-            return None
-        age = int(time.time() - ts)
-        log.info(f"Loaded {len(data)} industry benchmarks from cache (age: {age}s, source: {payload.get('source')})")
-        return data
-    except Exception:
-        return None
-
-
 def get_industry_benchmarks() -> dict:
     """Get industry benchmarks: disk cache → akshare (primary) → push2 (fallback)."""
-    cached = _load_disk_cache()
+    cached = _cache.load()
     if cached:
         return cached
 
@@ -190,16 +163,16 @@ def get_industry_benchmarks() -> dict:
         push2_data = _fetch_from_push2()
         if push2_data:
             merged = _merge_benchmarks(ak_data, push2_data)
-            _save_disk_cache(merged)
+            _cache.save(merged)
             return merged
         else:
-            _save_disk_cache(ak_data)
+            _cache.save(ak_data)
             return ak_data
 
     # akshare failed — try push2 alone
     push2_data = _fetch_from_push2()
     if push2_data:
-        _save_disk_cache(push2_data)
+        _cache.save(push2_data)
         return push2_data
 
     log.warning("All industry benchmark sources failed — factor scores will show unavailable")

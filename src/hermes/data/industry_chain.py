@@ -10,17 +10,15 @@ Uses akshare stock_board_industry_* APIs + East Money datacenter.
 Disk cache at .hermes/cache/industry_chain.json with 4-hour TTL.
 """
 
-import json
 import time
 import logging
 from hermes.api.eastmoney import em_get
 from hermes.config import CONFIG_DIR
+from hermes.data.cache import DiskCache
 
 log = logging.getLogger(__name__)
 
-CACHE_DIR = CONFIG_DIR / "cache"
-CACHE_FILE = CACHE_DIR / "industry_chain.json"
-CACHE_TTL = 4 * 3600
+_cache = DiskCache(CONFIG_DIR / "cache", "industry_chain.json", ttl=4 * 3600)
 
 # Industry chain mapping: key sectors → their upstream/downstream/complementary/substitute
 _CHAIN_MAP = {
@@ -179,24 +177,6 @@ _GENERIC_CHAIN = {
 }
 
 
-def _save_cache(data: dict):
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    payload = {"timestamp": time.time(), "data": data}
-    CACHE_FILE.write_text(json.dumps(payload, ensure_ascii=False))
-
-
-def _load_cache() -> dict | None:
-    if not CACHE_FILE.exists():
-        return None
-    try:
-        payload = json.loads(CACHE_FILE.read_text())
-        if time.time() - payload.get("timestamp", 0) > CACHE_TTL:
-            return None
-        return payload.get("data")
-    except Exception:
-        return None
-
-
 def _fetch_industry_composition(industry: str) -> list[dict] | None:
     """Fetch peer companies in the same industry sector via akshare."""
     try:
@@ -274,7 +254,7 @@ def industry_chain(code: str) -> dict:
     chain = _CHAIN_MAP.get(industry, _GENERIC_CHAIN)
 
     # Peer composition
-    cached = _load_cache()
+    cached = _cache.load()
     peers_key = f"peers_{industry}"
     peers = None
     if cached and peers_key in cached:
@@ -288,7 +268,7 @@ def industry_chain(code: str) -> dict:
             if cached is None:
                 cached = {}
             cached[peers_key] = peers
-            _save_cache(cached)
+            _cache.save(cached)
 
     # Competitive landscape summary
     total_peers = len(peers) if peers else 0

@@ -11,7 +11,7 @@ In-memory cache (60s TTL) prevents redundant calls during a single evaluation ru
 
 import time
 import logging
-from hermes.api.eastmoney import em_get, emweb_get, parse_secid, _push2_down
+from hermes.api.eastmoney import em_get, emweb_get, parse_secid
 
 log = logging.getLogger(__name__)
 

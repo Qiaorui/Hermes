@@ -59,19 +59,18 @@ def _consistency_score(years: int | None) -> float | None:
 
 def dividend_factor(code: str) -> dict:
     """Compute dividend factor score (0-10). Industry-neutralized, no fallbacks."""
-    div_data = stock_dividend(code)
+    from hermes.data.quote import stock_quote
+    quote = stock_quote(code)
+    if "error" in quote:
+        return {"error": "Failed to get quote", "code": code}
+
+    div_data = stock_dividend(code, quote)
     if "error" in div_data:
         return {"error": div_data.get("error", "Dividend data unavailable"), "code": code}
 
     dividend_yield = div_data.get("dividend_yield")
     payout_ratio = div_data.get("payout_ratio")
     consecutive_years = div_data.get("consecutive_years")
-
-    # Get industry benchmarks for yield percentile
-    from hermes.data.quote import stock_quote
-    quote = stock_quote(code)
-    if "error" in quote:
-        return {"error": "Failed to get quote for industry matching", "code": code}
 
     ind_bench = get_industry_median_from_quote(quote)
     ind_name = ind_bench.get("industry") if ind_bench else None

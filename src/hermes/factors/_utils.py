@@ -1,7 +1,5 @@
 """Shared utilities for factor modules."""
 
-from typing import Any
-
 
 def weighted_avg(scores: dict[str, float | None], weights: dict[str, float]) -> float | None:
     """Compute weighted average only from available (non-None) scores.
