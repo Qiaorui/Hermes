@@ -40,6 +40,7 @@ DEFAULT_CONFIG = {
         "watch": 3,
     },
     "reports_dir": str(PROJECT_ROOT / ".hermes" / "reports"),
+    "webhook_url": "",
 }
 
 
@@ -47,13 +48,23 @@ def load_config() -> dict:
     """Load config from disk, merging with defaults for missing keys."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     merged = dict(DEFAULT_CONFIG)
+    # Deep merge nested dicts
+    for key in ("factor_weights", "trigger_defaults", "signal_thresholds"):
+        merged[key] = dict(DEFAULT_CONFIG[key])
+
     if CONFIG_FILE.exists():
         try:
             user = json.loads(CONFIG_FILE.read_text())
             merged.update(user)
-            # Deep merge factor_weights
-            if "factor_weights" in user:
-                merged["factor_weights"] = {**DEFAULT_CONFIG["factor_weights"], **user["factor_weights"]}
+            # Deep merge all nested dicts
+            for key in ("factor_weights", "trigger_defaults", "signal_thresholds"):
+                if key in user and isinstance(user[key], dict) and isinstance(merged[key], dict):
+                    merged[key] = {**DEFAULT_CONFIG[key], **user[key]}
+                    # Second-level deep merge for trigger_defaults sub-dicts
+                    if key == "trigger_defaults":
+                        for sub_key in ("stop_loss_pct", "stop_profit_pct"):
+                            if sub_key in user.get("trigger_defaults", {}):
+                                merged[key][sub_key] = {**DEFAULT_CONFIG[key][sub_key], **user["trigger_defaults"][sub_key]}
         except Exception:
             pass
     return merged

@@ -1,6 +1,6 @@
 """Webhook notifier — push trigger alerts to external services (DingTalk, custom webhook).
 
-Requires webhook_url in ~/.hermes/config.json:
+Requires webhook_url in .hermes/config.json:
   {"webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=xxx"}
 
 When configured, alerts are sent both to terminal (cli_notifier) and to the webhook.

@@ -25,7 +25,7 @@ A股量化分析与持仓管理工具，支持 CLI 和 MCP Server 双模式运�
 |------|------|
 | `src/hermes/api/` | 数据源适配: eastmoney.py, sina.py, search.py |
 | `src/hermes/data/` | 17 模块: quote, kline, fund_flow, announcements, valuation, financial, shareholders, unlock, market, dividend, industry, industry_chain, macro, analyst, northbound, dragon_tiger, events, screen, cache |
-| `src/hermes/factors/` | 8 因子评分 (Barra CNE5S): value, growth, quality, dividend, momentum, capital_flow, volatility, liquidity + composite + utils |
+| `src/hermes/factors/` | 8 因子评分 (Barra CNE5S): value, growth, quality, dividend, momentum, capital_flow, volatility, liquidity + composite + _ctx(DataContext) + utils |
 | `src/hermes/strategy/` | base.py (策略协议) + eval.py (评估策略) |
 | `src/hermes/service/` | portfolio.py — 持仓集中度/分红/绩效/巡逻/评估共享逻辑 |
 | `src/hermes/portfolio/` | models.py (5 数据类) + db.py (CRUD) |
@@ -78,7 +78,14 @@ A股量化分析与持仓管理工具，支持 CLI 和 MCP Server 双模式运�
 | volatility | 0.06 | 波动率因子 |
 | liquidity | 0.07 | 流动性因子 |
 
-**信号阈值**: score ≥ 7 → buy · ≥ 5 → hold · ≥ 3 → watch · < 3 → sell
+**信号阈值**: score ≥ 7 → buy · ≥ 5 → hold · ≥ 3 → watch · < 3 → sell（可通过 `mcp_config_set signal_thresholds.xxx` 配置）
+
+**DataContext**: evaluate 时预取所有数据传入因子函数，避免 ~13 次冗余 API 调用。因子函数接受 `ctx=None`，有 ctx 时从 ctx 读取，否则独立调用 API。
+
+**触发器默认值**: 可通过 `mcp_config_set trigger_defaults.xxx` 配置：
+- `pe_high_threshold`: PE 预警阈值（默认 50）
+- `stop_loss_pct`: 止损比例（high_vol=0.85, medium_vol=0.90, low_vol=0.93）
+- `stop_profit_pct`: 止盈比例（high_valuation=1.10, low_valuation=1.25, neutral=1.20）
 
 ## 评估流程
 
