@@ -307,7 +307,9 @@ def analyze(code: str) -> dict:
     if nb_items:
         latest_nb = nb_items[0]
         nb_net = latest_nb.get("net_flow")
-        report += f"| 北向资金 | 最新{_wan(nb_net)}{_flow_dir(nb_net)} | {'北向流入' if nb_net is not None and nb_net > 0 else '北向流出' if nb_net is not None else 'N/A'} |\n"
+        nb_cum = nb_data.get("cumulative_net")
+        cum_str = f" | 累计{_yi(nb_cum)}" if nb_cum is not None else ""
+        report += f"| 北向资金 | 最新{_wan(nb_net)}{_flow_dir(nb_net)}{cum_str} | {'北向流入' if nb_net is not None and nb_net > 0 else '北向流出' if nb_net is not None else 'N/A'} |\n"
 
     # 龙虎榜 — check if this stock appeared on recent dragon-tiger list
     dt_data = dragon_tiger if "error" not in dragon_tiger else {}

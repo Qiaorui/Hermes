@@ -14,7 +14,7 @@ from hermes.data.shareholders import stock_shareholders
 from hermes.data.unlock import stock_unlock_schedule
 from hermes.data.market import market_index
 
-mcp = FastMCP("web-search")
+mcp = FastMCP("hermes")
 
 
 # ── Web search tools ──
