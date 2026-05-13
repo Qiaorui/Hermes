@@ -18,13 +18,17 @@ from hermes.portfolio.db import (
 )
 from hermes.data.quote import stock_quote
 from hermes.data.market import market_index
-from hermes.notify.cli_notifier import notify, notify_trigger
+from hermes.notify.cli_notifier import notify_trigger
 
-console = Console(force_terminal=True)
+console = Console()
 
 app = typer.Typer(help="Hermes — A-stock analysis and portfolio tracking")
 portfolio_app = typer.Typer(help="Portfolio management")
 trigger_app = typer.Typer(help="Trigger conditions management")
+
+SIGNAL_ICONS = {"buy": "▲", "hold": "●", "watch": "◆", "sell": "▼"}
+SIGNAL_COLORS = {"buy": "green", "hold": "cyan", "watch": "yellow", "sell": "red"}
+TRIGGER_ICONS = {"price_stop_loss": "▼", "price_stop_profit": "▲", "pe_high": "⚠", "near_52w_low": "◇"}
 
 
 @app.command()
@@ -33,12 +37,22 @@ def dashboard():
     holdings = list_holdings()
     watchlist = list_watchlist()
 
+    # Pre-fetch all quotes and factor results in a single pass
+    quotes = {}
+    factor_cache: dict[str, dict] = {}
+    for h in holdings:
+        if h.code not in quotes:
+            quotes[h.code] = stock_quote(h.code)
+        if h.code not in factor_cache:
+            try:
+                factor_cache[h.code] = composite_factor(h.code)
+            except Exception:
+                factor_cache[h.code] = {}
+
     total_cost = 0.0
     total_value = 0.0
-
-    # ─── Header: Summary ───
     for h in holdings:
-        q = stock_quote(h.code)
+        q = quotes[h.code]
         if "error" not in q:
             total_cost += h.cost_price * h.shares
             total_value += q.get("price", 0) * h.shares
@@ -67,17 +81,8 @@ def dashboard():
     h_table.add_column("市值(万)", justify="right", min_width=10)
     h_table.add_column("行业", min_width=10)
 
-    # Cache factor results to avoid repeated API calls per stock
-    factor_cache: dict[str, dict] = {}
     for h in holdings:
-        if h.code not in factor_cache:
-            try:
-                factor_cache[h.code] = composite_factor(h.code)
-            except Exception:
-                factor_cache[h.code] = {}
-
-    for h in holdings:
-        q = stock_quote(h.code)
+        q = quotes[h.code]
         if "error" in q:
             h_table.add_row(str(h.id), h.code, h.name, "-", str(h.cost_price), str(h.shares), "-", "-", "-", "")
             continue
@@ -93,8 +98,8 @@ def dashboard():
         if fc and "error" not in fc:
             sig = fc.get("signal", "hold")
             sc = fc.get("score", 0)
-            sig_icon = {"buy": "▲", "hold": "●", "watch": "◆", "sell": "▼"}.get(sig, "?")
-            sig_color = {"buy": "green", "hold": "cyan", "watch": "yellow", "sell": "red"}.get(sig, "white")
+            sig_icon = SIGNAL_ICONS.get(sig, "?")
+            sig_color = SIGNAL_COLORS.get(sig, "white")
             signal_text = Text(f"{sig_icon}{sc}", style=sig_color)
         else:
             signal_text = Text("-", style="dim")
@@ -147,7 +152,7 @@ def dashboard():
     if all_triggers:
         t_text.append(f"活跃触发条件: {len(all_triggers)} 条\n", style="bold")
         for t in all_triggers:
-            icon = {"price_stop_loss": "▼", "price_stop_profit": "▲", "pe_high": "⚠", "near_52w_low": "◆"}.get(t.type, "?")
+            icon = TRIGGER_ICONS.get(t.type, "?")
             t_text.append(f"  {icon} [{t.code} {t.name}] {t.description}\n")
     else:
         t_text.append("  无触发条件", style="dim")
@@ -156,9 +161,9 @@ app.add_typer(portfolio_app, name="portfolio")
 app.add_typer(trigger_app, name="trigger")
 
 
-@app.command()
+@app.command(hidden=True)
 def patrol():
-    """Automated patrol: check all holdings/watchlist against triggers. Designed for cron use."""
+    """Alias for 'hermes portfolio check'. Designed for cron use."""
     portfolio_check()
 
 
@@ -167,6 +172,9 @@ def evaluate(code: str):
     """Evaluate a single stock. Runs full analysis, saves report and triggers."""
     from hermes.service.portfolio import evaluate_stock
     result = evaluate_stock(code)
+    if "error" in result:
+        typer.echo(result["error"])
+        return
     signal = result["signal"]
     score = result["score"]
     report = result["report"]
@@ -179,8 +187,8 @@ def evaluate(code: str):
     console.print(Panel(report, title=f"{name}（{code}）评估报告", border_style="cyan"))
 
     # Signal summary
-    signal_icon = {"buy": "▲", "hold": "●", "watch": "◆", "sell": "▼"}.get(signal, "?")
-    signal_color = {"buy": "green", "hold": "cyan", "watch": "yellow", "sell": "red"}.get(signal, "white")
+    signal_icon = SIGNAL_ICONS.get(signal, "?")
+    signal_color = SIGNAL_COLORS.get(signal, "white")
     console.print(Panel(
         Text(f"{signal_icon} 信号: {signal.upper()} | 评分: {score}/50", style=f"bold {signal_color}"),
         title="综合信号", border_style=signal_color,
@@ -346,10 +354,13 @@ def report(
         name = q.get("name", code) if "error" not in q else code
         filename = f"{code}_{name}_{date.today().strftime('%Y%m%d')}.md"
         reports_dir = get_reports_dir()
-        reports_dir.mkdir(parents=True, exist_ok=True)
-        filepath = reports_dir / filename
-        filepath.write_text(r.content, encoding="utf-8")
-        typer.echo(f"报告已导出: {filepath}")
+        try:
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            filepath = reports_dir / filename
+            filepath.write_text(r.content, encoding="utf-8")
+            typer.echo(f"报告已导出: {filepath}")
+        except OSError as e:
+            typer.echo(f"导出失败: {e}")
     else:
         typer.echo(r.content)
 
@@ -602,7 +613,9 @@ def portfolio_remove(id: int):
     h = get_holding(id)
     if h:
         remove_holding(id)
-        add_transaction(h.code, h.name, "sell", 0, h.shares, f"清仓 #{id} 成本{h.cost_price}元")
+        q = stock_quote(h.code) if "error" not in stock_quote(h.code) else {}
+        sell_price = q.get("price", h.cost_price) or h.cost_price
+        add_transaction(h.code, h.name, "sell", sell_price, h.shares, f"清仓 #{id} 成本{h.cost_price}元")
         typer.echo(f"已删除持仓 #{id}: {h.code} {h.name}")
     else:
         typer.echo(f"持仓 #{id} 不存在")
@@ -648,26 +661,14 @@ def config_set(
     value: str = typer.Option(..., "--value", "-v", help="配置值"),
 ):
     """Set a configuration value. Use dot notation for nested keys (e.g. factor_weights.value)."""
-    from hermes.config import load_config, save_config
+    from hermes.config import load_config, save_config, set_nested_config
 
     cfg = load_config()
-    keys = key.split(".")
-    target = cfg
-    for k in keys[:-1]:
-        if k not in target or not isinstance(target[k], dict):
-            typer.echo(f"配置路径 {key} 不存在")
-            return
-        target = target[k]
-
-    # Try numeric conversion
     try:
-        parsed = float(value)
-        if parsed == int(parsed):
-            parsed = int(parsed)
-    except ValueError:
-        parsed = value
-
-    target[keys[-1]] = parsed
+        cfg, parsed = set_nested_config(cfg, key, value)
+    except ValueError as e:
+        typer.echo(str(e))
+        return
     save_config(cfg)
     typer.echo(f"已设置 {key} = {parsed}")
 

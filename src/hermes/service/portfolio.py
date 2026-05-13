@@ -20,8 +20,13 @@ def portfolio_concentration_data() -> dict:
     ind_map = {}
     for h in holdings:
         q = stock_quote(h.code)
-        ind = q.get("industry", "未知") if "error" not in q else "未知"
-        mv = q.get("price", 0) * h.shares if "error" not in q else 0
+        if "error" in q:
+            # Use cost-based fallback when live quote unavailable
+            ind = "未知"
+            mv = h.cost_price * h.shares
+        else:
+            ind = q.get("industry", "未知")
+            mv = q.get("price", 0) * h.shares
         ind_map.setdefault(ind, []).append({"code": h.code, "name": h.name, "mv": mv})
 
     total_mv = sum(item["mv"] for items in ind_map.values() for item in items)

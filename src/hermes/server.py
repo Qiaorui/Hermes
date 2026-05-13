@@ -14,6 +14,21 @@ from hermes.data.shareholders import stock_shareholders
 from hermes.data.unlock import stock_unlock_schedule
 from hermes.data.market import market_index
 
+
+def _to_json(obj) -> str:
+    """Serialize to JSON, non-ASCII preserved."""
+    return json.dumps(obj)
+
+
+def _safe_call(func, *args, **kwargs):
+    """Call a data function, catching exceptions and returning structured error dict."""
+    try:
+        result = func(*args, **kwargs)
+        return result
+    except Exception as e:
+        code = args[0] if args else kwargs.get("code", "")
+        return {"error": str(e), "code": code}
+
 mcp = FastMCP("hermes")
 
 
@@ -29,12 +44,19 @@ def web_search(query: str, max_results: int = 10, backend: str = "google") -> st
         backend: Search backend, 'google' (default) or 'lite'. Try 'lite' if 'google' fails.
     """
     if backend not in BACKENDS:
+        original = backend
         backend = "google"
+    else:
+        original = None
     max_results = min(max_results, 20)
     results = search_text(query, max_results, backend)
     if not results:
-        return json.dumps({"error": "No results found", "query": query}, ensure_ascii=False)
-    return json.dumps({"query": query, "count": len(results), "results": results}, ensure_ascii=False)
+        return _to_json({"error": "No results found", "query": query})
+    resp = {"query": query, "count": len(results), "results": results}
+    if original:
+        resp["backend_used"] = backend
+        resp["note"] = f"Requested backend '{original}' is not available, using '{backend}'"
+    return _to_json(resp)
 
 
 @mcp.tool()
@@ -48,8 +70,8 @@ def web_search_news(query: str, max_results: int = 10) -> str:
     max_results = min(max_results, 20)
     results = search_news(query, max_results)
     if not results:
-        return json.dumps({"error": "No news results found", "query": query}, ensure_ascii=False)
-    return json.dumps({"query": query, "count": len(results), "results": results}, ensure_ascii=False)
+        return _to_json({"error": "No news results found", "query": query})
+    return _to_json({"query": query, "count": len(results), "results": results})
 
 
 @mcp.tool()
@@ -63,7 +85,7 @@ def web_fetch_page(url: str, keywords: list[str] | None = None, max_length: int 
         max_length: Maximum total text length to return (default 5000).
     """
     result = fetch_page(url, keywords, max_length)
-    return json.dumps(result, ensure_ascii=False)
+    return _to_json(result)
 
 
 @mcp.tool()
@@ -77,7 +99,7 @@ def web_fetch_pdf(url: str, keywords: list[str] | None = None, max_length: int =
     """
     from hermes.api.search import fetch_pdf
     result = fetch_pdf(url, keywords, max_length)
-    return json.dumps(result, ensure_ascii=False)
+    return _to_json(result)
 
 
 # ── Stock data tools ──
@@ -89,7 +111,7 @@ def mcp_stock_quote(code: str) -> str:
     Args:
         code: Stock code, e.g. '002352' for Shenzhen, '603636' for Shanghai.
     """
-    return json.dumps(stock_quote(code), ensure_ascii=False)
+    return _to_json(_safe_call(stock_quote, code))
 
 
 @mcp.tool()
@@ -100,7 +122,8 @@ def mcp_stock_kline(code: str, days: int = 120) -> str:
         code: Stock code, e.g. '002352'.
         days: Number of recent trading days (default 120, max 500).
     """
-    return json.dumps(stock_kline(code, days), ensure_ascii=False)
+    days = min(days, 500)
+    return _to_json(_safe_call(stock_kline, code, days))
 
 
 @mcp.tool()
@@ -111,7 +134,8 @@ def mcp_stock_fund_flow(code: str, days: int = 30) -> str:
         code: Stock code, e.g. '002352'.
         days: Number of recent days (default 30, max 120).
     """
-    return json.dumps(stock_fund_flow(code, days), ensure_ascii=False)
+    days = min(days, 120)
+    return _to_json(_safe_call(stock_fund_flow, code, days))
 
 
 @mcp.tool()
@@ -122,7 +146,8 @@ def mcp_stock_announcements(code: str, count: int = 20) -> str:
         code: Stock code, e.g. '002352'.
         count: Number of recent announcements (default 20, max 50).
     """
-    return json.dumps(stock_announcements(code, count), ensure_ascii=False)
+    count = min(count, 50)
+    return _to_json(_safe_call(stock_announcements, code, count))
 
 
 @mcp.tool()
@@ -132,7 +157,7 @@ def mcp_stock_valuation_history(code: str) -> str:
     Args:
         code: Stock code, e.g. '002352'.
     """
-    return json.dumps(stock_valuation_history(code), ensure_ascii=False)
+    return _to_json(_safe_call(stock_valuation_history, code))
 
 
 @mcp.tool()
@@ -144,7 +169,8 @@ def mcp_stock_financial(code: str, report_type: str = "income", count: int = 4) 
         report_type: Statement type - 'income', 'balance', or 'cashflow' (default 'income').
         count: Number of recent periods (default 4, max 8).
     """
-    return json.dumps(stock_financial(code, report_type, count), ensure_ascii=False)
+    count = min(count, 8)
+    return _to_json(_safe_call(stock_financial, code, report_type, count))
 
 
 @mcp.tool()
@@ -155,7 +181,7 @@ def mcp_stock_shareholders(code: str, top_n: int = 10) -> str:
         code: Stock code, e.g. '002352' for Shenzhen, '603636' for Shanghai.
         top_n: Number of top shareholders per list (default 10, max 10).
     """
-    return json.dumps(stock_shareholders(code, top_n), ensure_ascii=False)
+    return _to_json(_safe_call(stock_shareholders, code, top_n))
 
 
 @mcp.tool()
@@ -165,7 +191,7 @@ def mcp_stock_unlock_schedule(code: str) -> str:
     Args:
         code: Stock code, e.g. '002352'.
     """
-    return json.dumps(stock_unlock_schedule(code), ensure_ascii=False)
+    return _to_json(_safe_call(stock_unlock_schedule, code))
 
 
 @mcp.tool()
@@ -175,7 +201,8 @@ def mcp_market_index(days: int = 60) -> str:
     Args:
         days: Number of recent trading days (default 60, max 500).
     """
-    return json.dumps(market_index(days), ensure_ascii=False)
+    days = min(days, 500)
+    return _to_json(_safe_call(market_index, days))
 
 
 @mcp.tool()
@@ -186,7 +213,7 @@ def mcp_stock_dividend(code: str) -> str:
         code: Stock code, e.g. '002352'.
     """
     from hermes.data.dividend import stock_dividend
-    return json.dumps(stock_dividend(code), ensure_ascii=False)
+    return _to_json(_safe_call(stock_dividend, code))
 
 
 @mcp.tool()
@@ -197,14 +224,14 @@ def mcp_industry_chain(code: str) -> str:
         code: Stock code, e.g. '002352'.
     """
     from hermes.data.industry_chain import industry_chain
-    return json.dumps(industry_chain(code), ensure_ascii=False)
+    return _to_json(_safe_call(industry_chain, code))
 
 
 @mcp.tool()
 def mcp_macro_indicators() -> str:
     """Get latest macro economic indicators (PMI, CPI, GDP, LPR, M2)."""
     from hermes.data.macro import macro_indicators
-    return json.dumps(macro_indicators(), ensure_ascii=False)
+    return _to_json(_safe_call(macro_indicators))
 
 
 @mcp.tool()
@@ -215,7 +242,7 @@ def mcp_stock_analyst(code: str) -> str:
         code: Stock code, e.g. '002352'.
     """
     from hermes.data.analyst import stock_analyst
-    return json.dumps(stock_analyst(code), ensure_ascii=False)
+    return _to_json(_safe_call(stock_analyst, code))
 
 
 @mcp.tool()
@@ -226,7 +253,7 @@ def mcp_dragon_tiger(date: str = "") -> str:
         date: Trading date in YYYYMMDD format (empty = most recent available day).
     """
     from hermes.data.dragon_tiger import dragon_tiger_list
-    return json.dumps(dragon_tiger_list(date), ensure_ascii=False)
+    return _to_json(_safe_call(dragon_tiger_list, date))
 
 
 @mcp.tool()
@@ -236,8 +263,9 @@ def mcp_northbound_flow(days: int = 30) -> str:
     Args:
         days: Number of recent days (default 30, max 120).
     """
+    days = min(days, 120)
     from hermes.data.northbound import northbound_flow
-    return json.dumps(northbound_flow(days), ensure_ascii=False)
+    return _to_json(_safe_call(northbound_flow, days))
 
 
 # ── Industry & factor tools ──
@@ -258,9 +286,9 @@ def mcp_industry_benchmarks(industry: str = "") -> str:
             if industry in k or k in industry:
                 matched[k] = bench[k]
         if not matched:
-            return json.dumps({"error": f"No match for '{industry}'", "available": list(bench.keys())[:20]}, ensure_ascii=False)
-        return json.dumps(matched, ensure_ascii=False)
-    return json.dumps(bench, ensure_ascii=False)
+            return _to_json({"error": f"No match for '{industry}'", "available": list(bench.keys())[:20]})
+        return _to_json(matched)
+    return _to_json(bench)
 
 
 @mcp.tool()
@@ -271,10 +299,10 @@ def mcp_factor_score(code: str, factors: str = "") -> str:
         code: Stock code, e.g. '002352'.
         factors: Comma-separated factor names (empty = all). Options: value,growth,quality,dividend,momentum,capital_flow,volatility,liquidity.
     """
-    from hermes.factors import factor_score, ALL_FACTORS
+    from hermes.factors import factor_score
     names = [f.strip() for f in factors.split(",") if f.strip()] if factors else None
     result = factor_score(code, names)
-    return json.dumps(result, ensure_ascii=False)
+    return _to_json(result)
 
 
 @mcp.tool()
@@ -292,13 +320,13 @@ def mcp_factor_composite(code: str, weights: str = "") -> str:
     from hermes.factors.composite import composite_factor
     if weights:
         try:
-            w = _json.loads(weights)
+            w = json.loads(weights)
         except Exception:
             w = None
     else:
         w = None
     result = composite_factor(code, w)
-    return json.dumps(result, ensure_ascii=False)
+    return _to_json(result)
 
 
 # ── Report & trigger storage tools ──
@@ -314,7 +342,7 @@ def save_evaluation_report(code: str, content: str, score: int = 0) -> str:
     """
     from hermes.portfolio.db import save_report
     result = save_report(code, content, score)
-    return json.dumps({"status": "saved", "code": result.code, "score": result.score}, ensure_ascii=False)
+    return _to_json({"status": "saved", "code": result.code, "score": result.score})
 
 
 @mcp.tool()
@@ -331,11 +359,11 @@ def save_trigger_conditions(code: str, name: str, triggers_json: str) -> str:
     try:
         triggers = json.loads(triggers_json)
     except Exception:
-        return json.dumps({"error": "Invalid triggers_json", "code": code}, ensure_ascii=False)
+        return _to_json({"error": "Invalid triggers_json", "code": code})
 
     models = [TriggerCondition(code=code, name=name, type=t.get("type", ""), value=t.get("value", 0), description=t.get("description", "")) for t in triggers]
     save_triggers(models)
-    return json.dumps({"status": "saved", "code": code, "count": len(models)}, ensure_ascii=False)
+    return _to_json({"status": "saved", "code": code, "count": len(models)})
 
 
 # ── Portfolio CRUD tools ──
@@ -356,7 +384,7 @@ def mcp_add_holding(code: str, name: str, cost_price: float, shares: int, buy_da
     if not buy_date:
         buy_date = str(_date.today())
     h = add_holding(code, name, cost_price, shares, buy_date)
-    return json.dumps({"status": "added", "id": h.id, "code": h.code, "name": h.name, "cost": h.cost_price, "shares": h.shares}, ensure_ascii=False)
+    return _to_json({"status": "added", "id": h.id, "code": h.code, "name": h.name, "cost": h.cost_price, "shares": h.shares})
 
 
 @mcp.tool()
@@ -368,7 +396,7 @@ def mcp_remove_holding(id: int) -> str:
     """
     from hermes.portfolio.db import remove_holding
     ok = remove_holding(id)
-    return json.dumps({"status": "removed" if ok else "not_found", "id": id}, ensure_ascii=False)
+    return _to_json({"status": "removed" if ok else "not_found", "id": id})
 
 
 @mcp.tool()
@@ -377,7 +405,7 @@ def mcp_list_holdings() -> str:
     from hermes.portfolio.db import list_holdings
     holdings = list_holdings()
     items = [{"id": h.id, "code": h.code, "name": h.name, "cost_price": h.cost_price, "shares": h.shares, "buy_date": h.buy_date} for h in holdings]
-    return json.dumps({"count": len(items), "holdings": items}, ensure_ascii=False)
+    return _to_json({"count": len(items), "holdings": items})
 
 
 @mcp.tool()
@@ -390,7 +418,7 @@ def mcp_add_watch(code: str, name: str) -> str:
     """
     from hermes.portfolio.db import add_watch
     w = add_watch(code, name)
-    return json.dumps({"status": "added", "code": w.code, "name": w.name}, ensure_ascii=False)
+    return _to_json({"status": "added", "code": w.code, "name": w.name})
 
 
 @mcp.tool()
@@ -402,7 +430,7 @@ def mcp_remove_watch(code: str) -> str:
     """
     from hermes.portfolio.db import remove_watch
     ok = remove_watch(code)
-    return json.dumps({"status": "removed" if ok else "not_found", "code": code}, ensure_ascii=False)
+    return _to_json({"status": "removed" if ok else "not_found", "code": code})
 
 
 @mcp.tool()
@@ -411,7 +439,7 @@ def mcp_list_watchlist() -> str:
     from hermes.portfolio.db import list_watchlist
     items = list_watchlist()
     entries = [{"code": w.code, "name": w.name} for w in items]
-    return json.dumps({"count": len(entries), "watchlist": entries}, ensure_ascii=False)
+    return _to_json({"count": len(entries), "watchlist": entries})
 
 
 @mcp.tool()
@@ -424,7 +452,7 @@ def mcp_list_triggers(code: str = "") -> str:
     from hermes.portfolio.db import list_triggers
     triggers = list_triggers(code)
     items = [{"id": t.id, "code": t.code, "name": t.name, "type": t.type, "value": t.value, "description": t.description, "source": t.source} for t in triggers]
-    return json.dumps({"count": len(items), "triggers": items}, ensure_ascii=False)
+    return _to_json({"count": len(items), "triggers": items})
 
 
 @mcp.tool()
@@ -437,8 +465,8 @@ def mcp_get_report(code: str) -> str:
     from hermes.portfolio.db import get_report
     r = get_report(code)
     if not r:
-        return json.dumps({"error": f"No report found for {code}"}, ensure_ascii=False)
-    return json.dumps({"code": r.code, "score": r.score, "created_at": r.created_at, "content": r.content}, ensure_ascii=False)
+        return _to_json({"error": f"No report found for {code}"})
+    return _to_json({"code": r.code, "score": r.score, "created_at": r.created_at, "content": r.content})
 
 
 # ── Evaluation & screening tools ──
@@ -480,7 +508,7 @@ def mcp_screen(industry: str = "", pe_max: float = 0, pe_min: float = 0,
         for s in stocks:
             add_watch(s["code"], s["name"])
 
-    return json.dumps({"count": len(stocks), "stocks": stocks}, ensure_ascii=False)
+    return _to_json({"count": len(stocks), "stocks": stocks})
 
 
 @mcp.tool()
@@ -492,7 +520,7 @@ def mcp_evaluate(code: str) -> str:
     """
     from hermes.service.portfolio import evaluate_stock
     result = evaluate_stock(code)
-    return json.dumps(result, ensure_ascii=False)
+    return _to_json(result)
 
 
 @mcp.tool()
@@ -509,17 +537,20 @@ def mcp_export_report(code: str) -> str:
 
     r = get_report(code)
     if not r:
-        return json.dumps({"error": f"No report found for {code}"}, ensure_ascii=False)
+        return _to_json({"error": f"No report found for {code}"})
 
     q = stock_quote(code)
     name = q.get("name", code) if "error" not in q else code
     filename = f"{code}_{name}_{date.today().strftime('%Y%m%d')}.md"
     reports_dir = get_reports_dir()
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    filepath = reports_dir / filename
-    filepath.write_text(r.content, encoding="utf-8")
+    try:
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        filepath = reports_dir / filename
+        filepath.write_text(r.content, encoding="utf-8")
+    except OSError as e:
+        return _to_json({"error": f"Failed to write report file: {e}", "code": code})
 
-    return json.dumps({"status": "exported", "path": str(filepath)}, ensure_ascii=False)
+    return _to_json({"status": "exported", "path": str(filepath)})
 
 
 # ── Portfolio analysis tools ──
@@ -529,7 +560,7 @@ def mcp_portfolio_concentration() -> str:
     """Show portfolio industry concentration analysis. Warns if any industry >30%."""
     from hermes.service.portfolio import portfolio_concentration_data
     result = portfolio_concentration_data()
-    return json.dumps(result, ensure_ascii=False)
+    return _to_json(result)
 
 
 @mcp.tool()
@@ -537,7 +568,7 @@ def mcp_portfolio_dividend() -> str:
     """Show dividend income summary for all holdings."""
     from hermes.service.portfolio import portfolio_dividend_data
     result = portfolio_dividend_data()
-    return json.dumps(result, ensure_ascii=False)
+    return _to_json(result)
 
 
 @mcp.tool()
@@ -545,7 +576,7 @@ def mcp_portfolio_performance() -> str:
     """Show portfolio performance vs CSI 300 benchmark."""
     from hermes.service.portfolio import portfolio_performance_data
     result = portfolio_performance_data()
-    return json.dumps(result, ensure_ascii=False)
+    return _to_json(result)
 
 
 @mcp.tool()
@@ -561,7 +592,7 @@ def mcp_portfolio_log(code: str = "", limit: int = 30) -> str:
     txns = list_transactions(code, limit)
     items = [{"id": t.id, "code": t.code, "name": t.name, "action": t.action, "price": t.price, "shares": t.shares, "amount": t.amount, "note": t.note, "date": t.created_at[:10] if t.created_at else ""} for t in txns]
 
-    return json.dumps({"count": len(items), "transactions": items}, ensure_ascii=False)
+    return _to_json({"count": len(items), "transactions": items})
 
 
 @mcp.tool()
@@ -569,7 +600,7 @@ def mcp_patrol() -> str:
     """Run automated patrol: check all holdings/watchlist against trigger conditions."""
     from hermes.service.portfolio import patrol_data
     result = patrol_data()
-    return json.dumps(result, ensure_ascii=False)
+    return _to_json(result)
 
 
 @mcp.tool()
@@ -578,7 +609,7 @@ def mcp_config_show() -> str:
     from hermes.config import load_config
 
     cfg = load_config()
-    return json.dumps(cfg, ensure_ascii=False)
+    return _to_json(cfg)
 
 
 @mcp.tool()
@@ -589,26 +620,15 @@ def mcp_config_set(key: str, value: str) -> str:
         key: Config key, e.g. 'factor_weights.value' or 'push2_cooldown'.
         value: Config value (auto-converted to number if possible).
     """
-    from hermes.config import load_config, save_config
+    from hermes.config import load_config, save_config, set_nested_config
 
     cfg = load_config()
-    keys = key.split(".")
-    target = cfg
-    for k in keys[:-1]:
-        if k not in target or not isinstance(target[k], dict):
-            return json.dumps({"error": f"Path {key} does not exist"}, ensure_ascii=False)
-        target = target[k]
-
     try:
-        parsed = float(value)
-        if parsed == int(parsed):
-            parsed = int(parsed)
-    except ValueError:
-        parsed = value
-
-    target[keys[-1]] = parsed
+        cfg, parsed = set_nested_config(cfg, key, value)
+    except ValueError as e:
+        return _to_json({"error": str(e)})
     save_config(cfg)
-    return json.dumps({"status": "set", "key": key, "value": parsed}, ensure_ascii=False)
+    return _to_json({"status": "set", "key": key, "value": parsed})
 
 
 @mcp.tool()
@@ -621,7 +641,7 @@ def mcp_corporate_events(code: str) -> str:
     from hermes.data.events import corporate_events
 
     result = corporate_events(code)
-    return json.dumps(result, ensure_ascii=False)
+    return _to_json(result)
 
 
 if __name__ == "__main__":

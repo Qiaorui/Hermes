@@ -15,9 +15,16 @@ from hermes.data.market import market_index
 from hermes.factors._utils import weighted_avg, unavailable_list, coverage_pct
 
 
-def volatility_factor(code: str) -> dict:
+def volatility_factor(code: str, ctx=None) -> dict:
     """Compute volatility factor score (0-10). No fallback defaults."""
-    kline = stock_kline(code, 60)
+    if ctx is not None and ctx.has("kline"):
+        kline_raw = ctx.get("kline")
+        klines_raw = kline_raw.get("klines", [])
+        # ctx stores kline with 120 days; volatility needs 60 — take last 60 entries
+        klines_truncated = klines_raw[-60:] if len(klines_raw) > 60 else klines_raw
+        kline = {**kline_raw, "klines": klines_truncated}
+    else:
+        kline = stock_kline(code, 60)
     if "error" in kline:
         return {"error": "Failed to get kline data", "code": code}
 

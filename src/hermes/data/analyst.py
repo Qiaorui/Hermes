@@ -16,6 +16,29 @@ from hermes.api.eastmoney import em_get
 log = logging.getLogger(__name__)
 
 
+def _safe_float(val) -> float | None:
+    """Convert value to float, treating None/NaN as None but preserving legitimate 0."""
+    if val is None:
+        return None
+    try:
+        f = float(val)
+        return f if str(val) != "nan" else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_int(val) -> int | None:
+    """Convert value to int, treating None as None but preserving legitimate 0."""
+    if val is None:
+        return None
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return None
+
+log = logging.getLogger(__name__)
+
+
 def _fetch_research_reports(code: str) -> list[dict] | None:
     """Fetch research report list for a stock from akshare."""
     try:
@@ -34,12 +57,12 @@ def _fetch_research_reports(code: str) -> list[dict] | None:
                     "date": str(row.get("日期", "")),
                     "industry": str(row.get("行业", "")),
                     "pdf_url": str(row.get("报告PDF链接", "")),
-                    "eps_2026": float(row.get("2026-盈利预测-收益", 0)) if row.get("2026-盈利预测-收益") and str(row.get("2026-盈利预测-收益")) != "nan" else None,
-                    "pe_2026": float(row.get("2026-盈利预测-市盈率", 0)) if row.get("2026-盈利预测-市盈率") and str(row.get("2026-盈利预测-市盈率")) != "nan" else None,
-                    "eps_2027": float(row.get("2027-盈利预测-收益", 0)) if row.get("2027-盈利预测-收益") and str(row.get("2027-盈利预测-收益")) != "nan" else None,
-                    "pe_2027": float(row.get("2027-盈利预测-市盈率", 0)) if row.get("2027-盈利预测-市盈率") and str(row.get("2027-盈利预测-市盈率")) != "nan" else None,
-                    "eps_2028": float(row.get("2028-盈利预测-收益", 0)) if row.get("2028-盈利预测-收益") and str(row.get("2028-盈利预测-收益")) != "nan" else None,
-                    "pe_2028": float(row.get("2028-盈利预测-市盈率", 0)) if row.get("2028-盈利预测-市盈率") and str(row.get("2028-盈利预测-市盈率")) != "nan" else None,
+                    "eps_2026": _safe_float(row.get("2026-盈利预测-收益")),
+                    "pe_2026": _safe_float(row.get("2026-盈利预测-市盈率")),
+                    "eps_2027": _safe_float(row.get("2027-盈利预测-收益")),
+                    "pe_2027": _safe_float(row.get("2027-盈利预测-市盈率")),
+                    "eps_2028": _safe_float(row.get("2028-盈利预测-收益")),
+                    "pe_2028": _safe_float(row.get("2028-盈利预测-市盈率")),
                 }
                 reports.append(entry)
             except (ValueError, TypeError):
@@ -67,11 +90,11 @@ def _fetch_profit_forecast(code: str) -> dict | None:
                         try:
                             entries.append({
                                 "year": str(row.get("年度", "")),
-                                "analyst_count": int(row.get("预测机构数", 0)) if row.get("预测机构数") else None,
-                                "min": float(row.get("最小值", 0)) if row.get("最小值") else None,
-                                "mean": float(row.get("均值", 0)) if row.get("均值") else None,
-                                "max": float(row.get("最大值", 0)) if row.get("最大值") else None,
-                                "industry_avg": float(row.get("行业平均数", 0)) if row.get("行业平均数") else None,
+                                "analyst_count": _safe_int(row.get("预测机构数")),
+                                "min": _safe_float(row.get("最小值")),
+                                "mean": _safe_float(row.get("均值")),
+                                "max": _safe_float(row.get("最大值")),
+                                "industry_avg": _safe_float(row.get("行业平均数")),
                             })
                         except (ValueError, TypeError):
                             continue
@@ -98,7 +121,7 @@ def _fetch_institutional_participation(code: str) -> dict | None:
         latest = df.iloc[0]
         return {
             "date": str(latest.get("交易日", "")),
-            "institutional_participation_pct": float(latest.get("机构参与度", 0)) if latest.get("机构参与度") else None,
+            "institutional_participation_pct": _safe_float(latest.get("机构参与度")),
         }
     except Exception as e:
         log.warning(f"akshare institutional_participation failed for {code}: {e}")
@@ -165,6 +188,6 @@ def stock_analyst(code: str) -> dict:
 
     # If all three failed
     if not reports and not forecast and not inst:
-        result["error"] = "All analyst data sources unavailable"
+        return {"error": "All analyst data sources unavailable", "code": code}
 
     return result

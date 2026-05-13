@@ -36,13 +36,23 @@ def _turnover_score(turnover: float) -> float | None:
         return 10
 
 
-def liquidity_factor(code: str) -> dict:
+def liquidity_factor(code: str, ctx=None) -> dict:
     """Compute liquidity factor score (0-10). Industry-neutralized, no fallbacks."""
-    quote = stock_quote(code)
+    if ctx is not None and ctx.has("quote"):
+        quote = ctx.get("quote")
+    else:
+        quote = stock_quote(code)
     if "error" in quote:
         return {"error": "Failed to get quote", "code": code}
 
-    kline = stock_kline(code, 60)
+    if ctx is not None and ctx.has("kline"):
+        kline_raw = ctx.get("kline")
+        klines_raw = kline_raw.get("klines", [])
+        # ctx stores kline with 120 days; liquidity needs 60 — take last 60 entries
+        klines_truncated = klines_raw[-60:] if len(klines_raw) > 60 else klines_raw
+        kline = {**kline_raw, "klines": klines_truncated}
+    else:
+        kline = stock_kline(code, 60)
     if "error" in kline:
         return {"error": "Failed to get kline data", "code": code}
 

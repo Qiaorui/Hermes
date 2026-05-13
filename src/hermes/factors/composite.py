@@ -52,7 +52,7 @@ DEFAULT_WEIGHTS = {
 
 def _get_weights(weights: dict[str, float] | None = None) -> dict[str, float]:
     """Resolve weights: explicit > config file > defaults."""
-    if weights:
+    if weights is not None:
         return weights
     try:
         from hermes.config import get_factor_weights
@@ -61,8 +61,14 @@ def _get_weights(weights: dict[str, float] | None = None) -> dict[str, float]:
         return DEFAULT_WEIGHTS
 
 
-def composite_factor(code: str, weights: dict[str, float] | None = None) -> dict:
-    """Compute composite multi-factor score with configurable weights."""
+def composite_factor(code: str, weights: dict[str, float] | None = None, ctx=None) -> dict:
+    """Compute composite multi-factor score with configurable weights.
+
+    Args:
+        code: Stock code.
+        weights: Optional weight override dict.
+        ctx: Optional DataContext with pre-fetched data to avoid redundant API calls.
+    """
     w = _get_weights(weights)
 
     # Compute all factor scores
@@ -73,7 +79,7 @@ def composite_factor(code: str, weights: dict[str, float] | None = None) -> dict
     for name in ALL_FACTORS:
         func = FACTOR_FUNCS.get(name)
         if func:
-            r = func(code)
+            r = func(code, ctx=ctx) if ctx is not None else func(code)
             if "error" in r:
                 missing_factors.append({"factor": name, "reason": r["error"]})
             else:
@@ -96,12 +102,22 @@ def composite_factor(code: str, weights: dict[str, float] | None = None) -> dict
     if composite_score is None:
         return {"error": "No factor scores available for composite", "code": code}
 
-    # Signal determination
-    if composite_score >= 7:
+    # Signal determination — thresholds from config or defaults
+    try:
+        from hermes.config import load_config
+        thresholds = load_config().get("signal_thresholds", {})
+    except Exception:
+        thresholds = {}
+
+    buy_threshold = thresholds.get("buy", 7)
+    hold_threshold = thresholds.get("hold", 5)
+    watch_threshold = thresholds.get("watch", 3)
+
+    if composite_score >= buy_threshold:
         signal = "buy"
-    elif composite_score >= 5:
+    elif composite_score >= hold_threshold:
         signal = "hold"
-    elif composite_score >= 3:
+    elif composite_score >= watch_threshold:
         signal = "watch"
     else:
         signal = "sell"

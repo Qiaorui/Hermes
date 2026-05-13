@@ -17,7 +17,8 @@ log = logging.getLogger(__name__)
 
 # In-memory cache to prevent redundant quote calls across factor modules
 _quote_cache: dict[str, tuple[float, dict]] = {}
-_QUOTE_CACHE_TTL = 60  # seconds
+_QUOTE_CACHE_TTL = 60  # seconds for success
+_QUOTE_ERROR_CACHE_TTL = 15  # shorter TTL for errors
 
 
 def _val(d: dict, key: str) -> float | int | None:
@@ -156,7 +157,7 @@ def _fetch_from_fallback(code: str) -> dict | None:
         log.warning(f"kline turnover computation failed for {code}: {e}")
 
     # Check if we got minimum essential data
-    has_price = result.get("price") is not None
+    has_price = result.get("price") is not None and result.get("price") > 0
     has_valuation = result.get("pe_dynamic") is not None or result.get("pe_static") is not None
     if not has_price and not has_valuation:
         return None
@@ -180,8 +181,10 @@ def stock_quote(code: str) -> dict:
     # Check cache first
     now = time.time()
     cached = _quote_cache.get(code)
-    if cached and now - cached[0] < _QUOTE_CACHE_TTL:
-        return cached[1]
+    if cached:
+        ttl = _QUOTE_ERROR_CACHE_TTL if "error" in cached[1] else _QUOTE_CACHE_TTL
+        if now - cached[0] < ttl:
+            return cached[1]
 
     # Primary: push2
     result = _fetch_from_push2(code)

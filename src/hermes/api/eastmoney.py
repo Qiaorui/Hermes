@@ -57,10 +57,6 @@ _session_push2 = requests.Session()
 _session_push2.trust_env = False
 _session_push2.headers.update(FETCH_HEADERS)
 
-# ── Quote session cache (reuse within cooldown window) ──
-_quote_cache: dict[str, tuple[float, dict]] = {}
-_QUOTE_CACHE_TTL = 35
-
 
 def em_get(url: str, timeout: int = 15) -> dict | None:
     """GET request to East Money APIs with rate limiting, retry, and availability check."""
@@ -73,13 +69,6 @@ def em_get(url: str, timeout: int = 15) -> dict | None:
         log.debug(f"push2 down — skipping: {url[:80]}...")
         return None
 
-    # Check quote cache for push2 queries
-    if is_push2:
-        cached = _quote_cache.get(url)
-        if cached and time.time() - cached[0] < _QUOTE_CACHE_TTL:
-            log.debug(f"push2 cache hit: {url[:60]}...")
-            return cached[1]
-
     session = _session_push2 if is_push2 else _session
     max_attempts = 2 if is_push2 else 3
 
@@ -90,10 +79,7 @@ def em_get(url: str, timeout: int = 15) -> dict | None:
         try:
             r = session.get(url, timeout=timeout)
             if r.status_code == 200:
-                data = r.json()
-                if is_push2:
-                    _quote_cache[url] = (time.time(), data)
-                return data
+                return r.json()
         except (requests.exceptions.ConnectionError,
                 requests.exceptions.ChunkedEncodingError):
             if is_push2:

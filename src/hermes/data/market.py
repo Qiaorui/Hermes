@@ -17,10 +17,12 @@ def market_index(days: int = 60) -> dict:
     """Get recent market index data. Returns dict with all supported indices."""
     days = min(days, 500)
     result = {}
+    missing = []
 
     for key, (symbol, label) in INDICES.items():
         raw = fetch_kline(symbol, days)
         if raw is None:
+            missing.append(key)
             continue
         parsed = parse_klines(raw)
         if parsed:
@@ -33,9 +35,13 @@ def market_index(days: int = 60) -> dict:
                 "latest_change_pct": latest["change_pct"],
                 "klines": parsed,
             }
+        else:
+            missing.append(key)
 
     if not result:
         return {"error": "Failed to get market index data"}
 
     summary = {f"count_{k}": len(v["klines"]) for k, v in result.items()}
+    if missing:
+        summary["missing_indices"] = missing
     return {**summary, **result}

@@ -8,7 +8,7 @@ or default values per strict data policy.
 """
 
 import logging
-from hermes.api.eastmoney import em_get, parse_secid, _push2_down
+from hermes.api.eastmoney import em_get, parse_secid, push2_status
 
 log = logging.getLogger(__name__)
 
@@ -109,5 +109,5 @@ def stock_fund_flow(code: str, days: int = 30) -> dict:
         return result
 
     # Both sources failed — explicit error, no silent defaults
-    status = "push2 down" if _push2_down else "push2 failed"
+    status = "push2 down" if push2_status() != "available" else "push2 failed"
     return {"error": "Fund flow data unavailable", "code": code, "source_status": f"{status}, akshare failed"}

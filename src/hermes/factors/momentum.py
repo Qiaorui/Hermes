@@ -38,9 +38,12 @@ def _index_cum_return(index_klines: list, n: int) -> float | None:
     return (end - start) / start * 100
 
 
-def momentum_factor(code: str) -> dict:
+def momentum_factor(code: str, ctx=None) -> dict:
     """Compute momentum/reversal factor score (0-10). No fallback defaults."""
-    kline = stock_kline(code, 120)
+    if ctx is not None and ctx.has("kline"):
+        kline = ctx.get("kline")
+    else:
+        kline = stock_kline(code, 120)
     if "error" in kline:
         return {"error": "Failed to get kline data", "code": code}
 
@@ -115,7 +118,10 @@ def momentum_factor(code: str) -> dict:
         scores["long"] = 2
 
     # MA deviation
-    val = stock_valuation_history(code)
+    if ctx is not None and ctx.has("valuation"):
+        val = ctx.get("valuation")
+    else:
+        val = stock_valuation_history(code)
     if "error" not in val:
         price_vs_ma20 = val.get("price_vs_ma20")
         if price_vs_ma20 is not None:

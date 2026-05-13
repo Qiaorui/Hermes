@@ -78,9 +78,12 @@ def _consistency_score(consistency_pct: float | None) -> float | None:
         return 1.0
 
 
-def capital_flow_factor(code: str) -> dict:
+def capital_flow_factor(code: str, ctx=None) -> dict:
     """Compute capital flow factor score (0-10). Based on fund flow data, no fallbacks."""
-    flow = stock_fund_flow(code, 30)
+    if ctx is not None and ctx.has("fund_flow"):
+        flow = ctx.get("fund_flow")
+    else:
+        flow = stock_fund_flow(code, 30)
     if "error" in flow:
         return {"error": "Fund flow data unavailable", "code": code}
 
@@ -97,9 +100,10 @@ def capital_flow_factor(code: str) -> dict:
     cumulative_main_pct = None
     if recent_20:
         try:
-            main_pcts = [e.get("main_pct", 0) for e in recent_20]
-            if any(p is not None for p in main_pcts):
-                cumulative_main_pct = round(sum(p for p in main_pcts if p is not None), 2)
+            main_pcts = [e.get("main_pct") for e in recent_20]
+            valid_pcts = [p for p in main_pcts if p is not None]
+            if valid_pcts:
+                cumulative_main_pct = round(sum(valid_pcts), 2)
         except (ValueError, TypeError):
             pass
 
@@ -118,11 +122,11 @@ def capital_flow_factor(code: str) -> dict:
             inst_net_inflows = []
             total_net_inflows = []
             for e in recent_10:
-                sl = e.get("super_large_net_inflow", 0) or 0
-                lg = e.get("large_net_inflow", 0) or 0
-                main = e.get("main_net_inflow", 0) or 0
+                sl = e.get("super_large_net_inflow") or 0
+                lg = e.get("large_net_inflow") or 0
+                main = e.get("main_net_inflow") or 0
                 inst_net_inflows.append(abs(sl) + abs(lg))
-                total_net_inflows.append(abs(sl) + abs(lg) + abs(e.get("medium_net_inflow", 0) or 0) + abs(e.get("small_net_inflow", 0) or 0))
+                total_net_inflows.append(abs(sl) + abs(lg) + abs(e.get("medium_net_inflow") or 0) + abs(e.get("small_net_inflow") or 0))
             total_inst = sum(inst_net_inflows)
             total_all = sum(total_net_inflows)
             if total_all > 0:

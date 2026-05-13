@@ -19,6 +19,9 @@ Report sections:
   11. Action recommendation
 """
 
+import logging
+log = logging.getLogger(__name__)
+
 from hermes.data.quote import stock_quote
 from hermes.data.kline import stock_kline
 from hermes.data.fund_flow import stock_fund_flow
@@ -155,6 +158,10 @@ def analyze(code: str) -> dict:
         "dragon_tiger": dragon_tiger,
     }
 
+    # Build DataContext from pre-fetched data to avoid redundant factor API calls
+    from hermes.factors._ctx import DataContext
+    ctx = DataContext(data)
+
     # Factor-based signal (primary)
     signal = HOLD
     score = 0
@@ -162,7 +169,7 @@ def analyze(code: str) -> dict:
 
     try:
         from hermes.factors.composite import composite_factor
-        factor_result = composite_factor(code)
+        factor_result = composite_factor(code, ctx=ctx)
         if "error" not in factor_result:
             factor_score = factor_result.get("score", 0)
             factor_signal = factor_result.get("signal", "hold")
@@ -180,6 +187,8 @@ def analyze(code: str) -> dict:
             signal = BUY
         elif profit_yoy is not None and profit_yoy < -20:
             signal = SELL
+        elif profit_yoy is None:
+            signal = WATCH
 
     # Build full structured report
     name = quote.get("name", code)
@@ -605,6 +614,11 @@ def get_triggers(code: str, analysis: dict) -> list[dict]:
         return triggers
 
     # Adaptive stop-loss based on volatility factor
+    from hermes.config import load_config
+    trigger_cfg = load_config().get("trigger_defaults", {})
+    stop_cfg = trigger_cfg.get("stop_loss_pct", {})
+    profit_cfg = trigger_cfg.get("stop_profit_pct", {})
+
     vol_score = None
     if factor and "sub_factors" in factor:
         vol = factor["sub_factors"].get("volatility", {})
@@ -612,14 +626,14 @@ def get_triggers(code: str, analysis: dict) -> list[dict]:
 
     if vol_score is not None:
         if vol_score <= 3:
-            stop_pct = 0.85
+            stop_pct = stop_cfg.get("high_vol", 0.85)
         elif vol_score <= 6:
-            stop_pct = 0.90
+            stop_pct = stop_cfg.get("medium_vol", 0.90)
         else:
-            stop_pct = 0.93
+            stop_pct = stop_cfg.get("low_vol", 0.93)
         trigger_type = "price_stop_loss_adaptive"
     else:
-        stop_pct = 0.90
+        stop_pct = stop_cfg.get("default", 0.90)
         trigger_type = "price_stop_loss"
 
     triggers.append({
@@ -633,14 +647,14 @@ def get_triggers(code: str, analysis: dict) -> list[dict]:
     price_pct = valuation.get("price_pct_in_range")
     if price_pct is not None:
         if price_pct > 80:
-            profit_pct = 1.10
+            profit_pct = profit_cfg.get("high_valuation", 1.10)
         elif price_pct < 20:
-            profit_pct = 1.25
+            profit_pct = profit_cfg.get("low_valuation", 1.25)
         else:
-            profit_pct = 1.20
+            profit_pct = profit_cfg.get("neutral", 1.20)
         trigger_type = "price_stop_profit_adaptive"
     else:
-        profit_pct = 1.20
+        profit_pct = profit_cfg.get("default", 1.20)
         trigger_type = "price_stop_profit"
 
     triggers.append({
@@ -655,7 +669,8 @@ def get_triggers(code: str, analysis: dict) -> list[dict]:
     if pe is not None and pe > 0:
         from hermes.data.industry import get_industry_median_from_quote
         ind_bench = get_industry_median_from_quote(quote)
-        pe_threshold = 50
+        from hermes.config import load_config
+        pe_threshold = load_config().get("trigger_defaults", {}).get("pe_high_threshold", 50)
         if ind_bench:
             ind_pe = ind_bench.get("pe_ttm_median") or ind_bench.get("pe_median")
             if ind_pe is not None and ind_pe > 0:

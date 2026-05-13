@@ -76,10 +76,10 @@ def _get_conn() -> sqlite3.Connection:
 
 def add_holding(code: str, name: str, cost_price: float, shares: int, buy_date: str) -> Holding:
     conn = _get_conn()
-    conn.execute("INSERT INTO holdings (code, name, cost_price, shares, buy_date) VALUES (?, ?, ?, ?, ?)",
+    cur = conn.execute("INSERT INTO holdings (code, name, cost_price, shares, buy_date) VALUES (?, ?, ?, ?, ?)",
                  (code, name, cost_price, shares, buy_date))
     conn.commit()
-    row = conn.execute("SELECT * FROM holdings ORDER BY id DESC LIMIT 1").fetchone()
+    row = conn.execute("SELECT * FROM holdings WHERE id=?", (cur.lastrowid,)).fetchone()
     conn.close()
     return Holding(**dict(row))
 
@@ -166,10 +166,10 @@ def list_watchlist() -> list[WatchItem]:
 
 def add_trigger(code: str, name: str, type: str, value: float, description: str = "") -> TriggerCondition:
     conn = _get_conn()
-    conn.execute("INSERT INTO triggers (code, name, type, value, description, source) VALUES (?, ?, ?, ?, ?, 'manual')",
+    cur = conn.execute("INSERT INTO triggers (code, name, type, value, description, source) VALUES (?, ?, ?, ?, ?, 'manual')",
                  (code, name, type, value, description))
     conn.commit()
-    row = conn.execute("SELECT * FROM triggers WHERE code=? ORDER BY id DESC LIMIT 1", (code,)).fetchone()
+    row = conn.execute("SELECT * FROM triggers WHERE id=?", (cur.lastrowid,)).fetchone()
     conn.close()
     return TriggerCondition(**dict(row))
 
@@ -210,9 +210,9 @@ def save_triggers(triggers: list[TriggerCondition]) -> None:
 
 def save_report(code: str, content: str, score: int = 0) -> Report:
     conn = _get_conn()
-    conn.execute("INSERT INTO reports (code, content, score) VALUES (?, ?, ?)", (code, content, score))
+    cur = conn.execute("INSERT INTO reports (code, content, score) VALUES (?, ?, ?)", (code, content, score))
     conn.commit()
-    row = conn.execute("SELECT * FROM reports WHERE code=? ORDER BY id DESC LIMIT 1", (code,)).fetchone()
+    row = conn.execute("SELECT * FROM reports WHERE id=?", (cur.lastrowid,)).fetchone()
     conn.close()
     return Report(**dict(row))
 
@@ -227,10 +227,10 @@ def get_report(code: str) -> Report | None:
 def add_transaction(code: str, name: str, action: str, price: float, shares: int, note: str = "") -> Transaction:
     conn = _get_conn()
     amount = round(price * shares, 2)
-    conn.execute("INSERT INTO transactions (code, name, action, price, shares, amount, note) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    cur = conn.execute("INSERT INTO transactions (code, name, action, price, shares, amount, note) VALUES (?, ?, ?, ?, ?, ?, ?)",
                  (code, name, action, price, shares, amount, note))
     conn.commit()
-    row = conn.execute("SELECT * FROM transactions ORDER BY id DESC LIMIT 1").fetchone()
+    row = conn.execute("SELECT * FROM transactions WHERE id=?", (cur.lastrowid,)).fetchone()
     conn.close()
     return Transaction(**dict(row))
 

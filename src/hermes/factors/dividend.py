@@ -57,14 +57,20 @@ def _consistency_score(years: int | None) -> float | None:
         return 0.0
 
 
-def dividend_factor(code: str) -> dict:
+def dividend_factor(code: str, ctx=None) -> dict:
     """Compute dividend factor score (0-10). Industry-neutralized, no fallbacks."""
     from hermes.data.quote import stock_quote
-    quote = stock_quote(code)
+    if ctx is not None and ctx.has("quote"):
+        quote = ctx.get("quote")
+    else:
+        quote = stock_quote(code)
     if "error" in quote:
         return {"error": "Failed to get quote", "code": code}
 
-    div_data = stock_dividend(code, quote)
+    if ctx is not None and ctx.has("dividend"):
+        div_data = ctx.get("dividend")
+    else:
+        div_data = stock_dividend(code, quote)
     if "error" in div_data:
         return {"error": div_data.get("error", "Dividend data unavailable"), "code": code}
 

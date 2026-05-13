@@ -25,8 +25,6 @@ def northbound_flow(days: int = 30) -> dict:
     try:
         import akshare as ak
         # Fetch 沪股通 + 深股通 separately, then combine
-        sh_data = ak.stock_hsgt_hist_em(symbol="沪股通")
-        sz_data = ak.stock_hsgt_hist_em(symbol="深股通")
         total_data = ak.stock_hsgt_hist_em(symbol="北向资金")
 
         # Use total_data (北向资金) as primary, fall back to combined

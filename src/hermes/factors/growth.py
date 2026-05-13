@@ -36,9 +36,12 @@ def _growth_score(yoy: float) -> float:
         return 10
 
 
-def growth_factor(code: str) -> dict:
+def growth_factor(code: str, ctx=None) -> dict:
     """Compute growth factor score (0-10). Industry-neutralized, no fallbacks."""
-    quote = stock_quote(code)
+    if ctx and ctx.has("quote"):
+        quote = ctx.get("quote")
+    else:
+        quote = stock_quote(code)
     if "error" in quote:
         return {"error": "Failed to get quote", "code": code}
 
@@ -96,7 +99,10 @@ def growth_factor(code: str) -> dict:
         reasons["profit"] = "profit YoY data unavailable"
 
     # Trend: time-series, None when insufficient data
-    inc = stock_financial(code, "income", 4)
+    if ctx and ctx.has("income"):
+        inc = ctx.get("income")
+    else:
+        inc = stock_financial(code, "income", 4)
     periods = inc.get("periods", [])
 
     if len(periods) >= 3:

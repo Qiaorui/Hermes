@@ -17,16 +17,28 @@ from hermes.data.quote import stock_quote
 from hermes.factors._utils import weighted_avg, unavailable_list, coverage_pct
 
 
-def quality_factor(code: str) -> dict:
+def quality_factor(code: str, ctx=None) -> dict:
     """Compute quality factor score (0-10). No fallback defaults."""
     # Get industry context
-    quote = stock_quote(code)
+    if ctx and ctx.has("quote"):
+        quote = ctx.get("quote")
+    else:
+        quote = stock_quote(code)
     ind_bench = get_industry_median_from_quote(quote) if "error" not in quote else None
     ind_name = ind_bench.get("industry") if ind_bench else None
 
-    income = stock_financial(code, "income", 4)
-    balance = stock_financial(code, "balance", 4)
-    cashflow = stock_financial(code, "cashflow", 2)
+    if ctx and ctx.has("income"):
+        income = ctx.get("income")
+    else:
+        income = stock_financial(code, "income", 4)
+    if ctx and ctx.has("balance"):
+        balance = ctx.get("balance")
+    else:
+        balance = stock_financial(code, "balance", 4)
+    if ctx and ctx.has("cashflow"):
+        cashflow = ctx.get("cashflow")
+    else:
+        cashflow = stock_financial(code, "cashflow", 2)
 
     inc_periods = income.get("periods", [])
     bal_periods = balance.get("periods", [])

@@ -13,6 +13,17 @@ from datetime import date, timedelta
 log = logging.getLogger(__name__)
 
 
+def _safe_float(val) -> float | None:
+    """Convert value to float, treating None/NaN as None but preserving legitimate 0."""
+    if val is None:
+        return None
+    try:
+        f = float(val)
+        return f if str(val) != "nan" else None
+    except (ValueError, TypeError):
+        return None
+
+
 def _find_latest_date() -> str:
     """Find the most recent trading day with dragon-tiger data.
     Walks backwards up to 5 days from today.
@@ -50,12 +61,12 @@ def dragon_tiger_list(date_str: str = "") -> dict:
                 entry = {
                     "code": str(row.get("代码", "")),
                     "name": str(row.get("名称", "")),
-                    "close_price": float(row.get("收盘价", 0)) if row.get("收盘价") else None,
-                    "change_pct": float(row.get("涨跌幅", 0)) if row.get("涨跌幅") else None,
+                    "close_price": _safe_float(row.get("收盘价")),
+                    "change_pct": _safe_float(row.get("涨跌幅")),
                     "reason": str(row.get("上榜原因", "")),
-                    "buy_amount": float(row.get("买入额", 0)) if row.get("买入额") else None,
-                    "sell_amount": float(row.get("卖出额", 0)) if row.get("卖出额") else None,
-                    "net_amount": float(row.get("净额", 0)) if row.get("净额") else None,
+                    "buy_amount": _safe_float(row.get("买入额")),
+                    "sell_amount": _safe_float(row.get("卖出额")),
+                    "net_amount": _safe_float(row.get("净额")),
                     "buy_broker": str(row.get("买入营业部", "")),
                     "sell_broker": str(row.get("卖出营业部", "")),
                 }

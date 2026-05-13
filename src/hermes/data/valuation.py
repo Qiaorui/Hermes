@@ -55,8 +55,8 @@ def stock_valuation_history(code: str) -> dict:
         "price_pct_in_range": price_pct,
         "ma5": round(avg_5, 2),
         "ma20": round(avg_20, 2),
-        "price_vs_ma5": round(price_now / avg_5 * 100 - 100, 2) if avg_5 else None,
-        "price_vs_ma20": round(price_now / avg_20 * 100 - 100, 2) if avg_20 else None,
+        "price_vs_ma5": round(price_now / avg_5 * 100 - 100, 2) if price_now and avg_5 else None,
+        "price_vs_ma20": round(price_now / avg_20 * 100 - 100, 2) if price_now and avg_20 else None,
         "revenue_yoy": quote.get("revenue_yoy"),
         "profit_yoy": quote.get("profit_yoy"),
     }

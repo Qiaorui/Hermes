@@ -44,7 +44,6 @@ def _peg_score(pe: float | None, profit_yoy: float | None) -> float | None:
     if pe is None or profit_yoy is None:
         return None
     if pe <= 0 or profit_yoy <= 0:
-        # Negative PE or negative growth → PEG meaningless
         return None
     peg = pe / profit_yoy
     if peg < 0.5:
@@ -61,18 +60,24 @@ def _peg_score(pe: float | None, profit_yoy: float | None) -> float | None:
         return 0.5
 
 
-def value_factor(code: str) -> dict:
+def value_factor(code: str, ctx=None) -> dict:
     """Compute value factor score (0-10). Industry-neutralized, no fallbacks."""
-    quote = stock_quote(code)
+    if ctx and ctx.has("quote"):
+        quote = ctx.get("quote")
+    else:
+        quote = stock_quote(code)
     if "error" in quote:
         return {"error": "Failed to get quote", "code": code}
 
-    val = stock_valuation_history(code)
+    if ctx and ctx.has("valuation"):
+        val = ctx.get("valuation")
+    else:
+        val = stock_valuation_history(code)
     if "error" in val:
         return {"error": "Failed to get valuation history", "code": code}
 
     price_pct = val.get("price_pct_in_range", 50)
-    pe = quote.get("pe_dynamic")
+    pe = quote.get("pe_dynamic")  # pe_dynamic = PE(TTM) from push2, consistent with pe_ttm_median
     pb = quote.get("pb")
     ps = quote.get("ps")
     profit_yoy = quote.get("profit_yoy")
@@ -85,10 +90,10 @@ def value_factor(code: str) -> dict:
     reasons = {}
 
     # PE score: industry-relative percentile, None when data unavailable
-    if pe and pe > 0:
+    if pe is not None and pe > 0:
         if ind_name:
             pe_pct = industry_percentile(pe, ind_name, "pe")
-            scores["pe"] = pe_pct / 10 if pe_pct is not None else None
+            scores["pe"] = _invert_score(pe_pct) if pe_pct is not None else None
             if scores["pe"] is None:
                 reasons["pe"] = "industry PE median unavailable"
         else:
@@ -102,7 +107,7 @@ def value_factor(code: str) -> dict:
     if pb is not None:
         if ind_name:
             pb_pct = industry_percentile(pb, ind_name, "pb")
-            scores["pb"] = pb_pct / 10 if pb_pct is not None else None
+            scores["pb"] = _invert_score(pb_pct) if pb_pct is not None else None
             if scores["pb"] is None:
                 reasons["pb"] = "industry PB median unavailable"
         else:
@@ -118,7 +123,7 @@ def value_factor(code: str) -> dict:
         reasons["ps"] = "PS data unavailable"
 
     # EP (earnings yield = 1/PE), None when PE unavailable
-    if pe and pe > 0:
+    if pe is not None and pe > 0:
         ep = 1 / pe
         scores["ep"] = min(10, ep * 100)
     else:
