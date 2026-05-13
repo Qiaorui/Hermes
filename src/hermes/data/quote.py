@@ -91,14 +91,16 @@ def _fetch_from_fallback(code: str) -> dict | None:
         df = ak.stock_value_em(symbol=code)
         if df is not None and len(df) > 0:
             latest = df.iloc[-1]
-            result["price"] = float(latest.get("当日收盘价", 0))
-            result["pe_dynamic"] = float(latest.get("PE(TTM)", 0))
-            result["pe_static"] = float(latest.get("PE(静)", 0))
-            result["pb"] = float(latest.get("市净率", 0))
-            result["ps"] = float(latest.get("市销率", 0))
-            result["market_cap"] = float(latest.get("总市值", 0))
-            result["total_shares"] = int(latest.get("总股本", 0))
-            result["circulating_shares"] = int(latest.get("流通股本", 0))
+            result["price"] = _val(latest, "当日收盘价") or result.get("price")
+            result["pe_dynamic"] = _val(latest, "PE(TTM)") or result.get("pe_dynamic")
+            result["pe_static"] = _val(latest, "PE(静)") or result.get("pe_static")
+            result["pb"] = _val(latest, "市净率") or result.get("pb")
+            result["ps"] = _val(latest, "市销率") or result.get("ps")
+            result["market_cap"] = _val(latest, "总市值") or result.get("market_cap")
+            ts = _val(latest, "总股本")
+            result["total_shares"] = int(ts) if ts is not None else result.get("total_shares")
+            cs = _val(latest, "流通股本")
+            result["circulating_shares"] = int(cs) if cs is not None else result.get("circulating_shares")
     except Exception as e:
         log.warning(f"akshare stock_value_em failed for {code}: {e}")
 

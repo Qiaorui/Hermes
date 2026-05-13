@@ -36,8 +36,6 @@ def _safe_int(val) -> int | None:
     except (ValueError, TypeError):
         return None
 
-log = logging.getLogger(__name__)
-
 
 def _fetch_research_reports(code: str) -> list[dict] | None:
     """Fetch research report list for a stock from akshare."""

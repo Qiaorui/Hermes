@@ -44,27 +44,26 @@ DEFAULT_CONFIG = {
 }
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge override into base. Dicts are deep-merged; other values overridden."""
+    result = dict(base)
+    for key, val in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
+            result[key] = _deep_merge(result[key], val)
+        else:
+            result[key] = val
+    return result
+
+
 def load_config() -> dict:
     """Load config from disk, merging with defaults for missing keys."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     merged = dict(DEFAULT_CONFIG)
-    # Deep merge nested dicts
-    for key in ("factor_weights", "trigger_defaults", "signal_thresholds"):
-        merged[key] = dict(DEFAULT_CONFIG[key])
 
     if CONFIG_FILE.exists():
         try:
             user = json.loads(CONFIG_FILE.read_text())
-            merged.update(user)
-            # Deep merge all nested dicts
-            for key in ("factor_weights", "trigger_defaults", "signal_thresholds"):
-                if key in user and isinstance(user[key], dict) and isinstance(merged[key], dict):
-                    merged[key] = {**DEFAULT_CONFIG[key], **user[key]}
-                    # Second-level deep merge for trigger_defaults sub-dicts
-                    if key == "trigger_defaults":
-                        for sub_key in ("stop_loss_pct", "stop_profit_pct"):
-                            if sub_key in user.get("trigger_defaults", {}):
-                                merged[key][sub_key] = {**DEFAULT_CONFIG[key][sub_key], **user["trigger_defaults"][sub_key]}
+            merged = _deep_merge(DEFAULT_CONFIG, user)
         except Exception:
             pass
     return merged

@@ -6,7 +6,7 @@ from hermes.portfolio.db import (
 )
 from hermes.data.quote import stock_quote
 from hermes.data.dividend import stock_dividend
-from hermes.data.kline import stock_kline
+from hermes.data.market import market_index
 from hermes.strategy.eval import analyze, get_triggers
 from hermes.portfolio.models import TriggerCondition
 
@@ -72,7 +72,8 @@ def portfolio_performance_data() -> dict:
     if not holdings:
         return {"error": "No holdings"}
 
-    bench_kline = stock_kline("000300")
+    bench_data = market_index(250)
+    bench_klines = (bench_data.get("csi300", {}) or {}).get("klines", [])
     items = []
     total_pnl_pct = 0.0
     total_bench_pct = 0.0
@@ -87,15 +88,14 @@ def portfolio_performance_data() -> dict:
         holding_pnl = round((current_price - h.cost_price) / h.cost_price * 100, 2) if h.cost_price > 0 else 0
 
         bench_return = 0.0
-        if bench_kline and "error" not in bench_kline:
-            klines = bench_kline.get("klines", [])
+        if bench_klines:
             buy_idx = None
-            for i, k in enumerate(klines):
+            for i, k in enumerate(bench_klines):
                 if k.get("date", "") <= h.buy_date:
                     buy_idx = i
-            latest_bench = klines[-1].get("close", 0) if klines else 0
+            latest_bench = bench_klines[-1].get("close", 0) if bench_klines else 0
             if buy_idx is not None and latest_bench > 0:
-                bench_at_buy = klines[buy_idx].get("close", 0)
+                bench_at_buy = bench_klines[buy_idx].get("close", 0)
                 if bench_at_buy > 0:
                     bench_return = round((latest_bench - bench_at_buy) / bench_at_buy * 100, 2)
 

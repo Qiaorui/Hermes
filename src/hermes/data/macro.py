@@ -21,6 +21,17 @@ log = logging.getLogger(__name__)
 _cache = DiskCache(CONFIG_DIR / "cache", "macro_indicators.json", ttl=4 * 3600)
 
 
+def _safe_float(val) -> float | None:
+    """Convert value to float, treating None/NaN as None but preserving legitimate 0."""
+    if val is None:
+        return None
+    try:
+        f = float(val)
+        return None if str(val) in ("nan", "NaN") else f
+    except (ValueError, TypeError):
+        return None
+
+
 def _fetch_pmi() -> dict | None:
     """Fetch latest PMI data."""
     try:
@@ -30,10 +41,10 @@ def _fetch_pmi() -> dict | None:
             return None
         latest = df.iloc[0]
         return {
-            "manufacturing_pmi": float(latest.get("制造业-指数", 0)) if latest.get("制造业-指数") else None,
-            "manufacturing_yoy": float(latest.get("制造业-同比增长", 0)) if latest.get("制造业-同比增长") else None,
-            "non_manufacturing_pmi": float(latest.get("非制造业-指数", 0)) if latest.get("非制造业-指数") else None,
-            "non_manufacturing_yoy": float(latest.get("非制造业-同比增长", 0)) if latest.get("非制造业-同比增长") else None,
+            "manufacturing_pmi": _safe_float(latest.get("制造业-指数")),
+            "manufacturing_yoy": _safe_float(latest.get("制造业-同比增长")),
+            "non_manufacturing_pmi": _safe_float(latest.get("非制造业-指数")),
+            "non_manufacturing_yoy": _safe_float(latest.get("非制造业-同比增长")),
             "date": str(latest.get("月份", "")),
         }
     except Exception as e:
@@ -54,9 +65,9 @@ def _fetch_cpi() -> dict | None:
             cpi_rows = df
         latest = cpi_rows.iloc[0]
         return {
-            "cpi_monthly_rate": float(latest.get("今值", 0)) if latest.get("今值") else None,
-            "cpi_forecast": float(latest.get("预测值", 0)) if latest.get("预测值") else None,
-            "cpi_previous": float(latest.get("前值", 0)) if latest.get("前值") else None,
+            "cpi_monthly_rate": _safe_float(latest.get("今值")),
+            "cpi_forecast": _safe_float(latest.get("预测值")),
+            "cpi_previous": _safe_float(latest.get("前值")),
             "date": str(latest.get("日期", "")),
         }
     except Exception as e:
@@ -73,10 +84,10 @@ def _fetch_gdp() -> dict | None:
             return None
         latest = df.iloc[0]
         return {
-            "gdp_absolute": float(latest.get("国内生产总值-绝对值", 0)) if latest.get("国内生产总值-绝对值") else None,
-            "gdp_yoy": float(latest.get("国内生产总值-同比增长", 0)) if latest.get("国内生产总值-同比增长") else None,
-            "secondary_industry_yoy": float(latest.get("第二产业-同比增长", 0)) if latest.get("第二产业-同比增长") else None,
-            "tertiary_industry_yoy": float(latest.get("第三产业-同比增长", 0)) if latest.get("第三产业-同比增长") else None,
+            "gdp_absolute": _safe_float(latest.get("国内生产总值-绝对值")),
+            "gdp_yoy": _safe_float(latest.get("国内生产总值-同比增长")),
+            "secondary_industry_yoy": _safe_float(latest.get("第二产业-同比增长")),
+            "tertiary_industry_yoy": _safe_float(latest.get("第三产业-同比增长")),
             "date": str(latest.get("季度", "")),
         }
     except Exception as e:
@@ -93,8 +104,8 @@ def _fetch_lpr() -> dict | None:
             return None
         latest = df.iloc[0]
         return {
-            "lpr_1y": float(latest.get("LPR1Y", 0)) if latest.get("LPR1Y") else None,
-            "lpr_5y": float(latest.get("LPR5Y", 0)) if latest.get("LPR5Y") else None,
+            "lpr_1y": _safe_float(latest.get("LPR1Y")),
+            "lpr_5y": _safe_float(latest.get("LPR5Y")),
             "date": str(latest.get("TRADE_DATE", "")),
         }
     except Exception as e:
@@ -111,8 +122,8 @@ def _fetch_m2() -> dict | None:
             return None
         latest = df.iloc[0]
         return {
-            "m2_yoy": float(latest.get("货币和准货币(M2)-同比增长", 0)) if latest.get("货币和准货币(M2)-同比增长") else None,
-            "m1_yoy": float(latest.get("货币(M1)-同比增长", 0)) if latest.get("货币(M1)-同比增长") else None,
+            "m2_yoy": _safe_float(latest.get("货币和准货币(M2)-同比增长")),
+            "m1_yoy": _safe_float(latest.get("货币(M1)-同比增长")),
             "date": str(latest.get("月份", "")),
         }
     except Exception as e:

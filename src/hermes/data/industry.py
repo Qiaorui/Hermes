@@ -92,9 +92,9 @@ def _fetch_from_push2() -> dict:
             to_val = float(item.get("f7", "-")) if item.get("f7") != "-" else None
             py_val = float(item.get("f115", "-")) if item.get("f115") != "-" else None
             ry_val = float(item.get("f169", "-")) if item.get("f169") != "-" else None
-            if pe_val and pe_val > 0:
+            if pe_val is not None and pe_val > 0:
                 benchmarks[ind]["pe"].append(pe_val)
-            if pb_val and pb_val > 0:
+            if pb_val is not None and pb_val > 0:
                 benchmarks[ind]["pb"].append(pb_val)
             if to_val is not None and to_val > 0:
                 benchmarks[ind]["turnover"].append(to_val)

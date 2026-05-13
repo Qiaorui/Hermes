@@ -13,6 +13,17 @@ from hermes.api.eastmoney import em_get, parse_secid, push2_status
 log = logging.getLogger(__name__)
 
 
+def _safe_val(val) -> float | None:
+    """Convert value to float, treating None/NaN as None but preserving legitimate 0."""
+    if val is None:
+        return None
+    try:
+        f = float(val)
+        return None if str(val) == "nan" or str(val) == "NaN" else f
+    except (ValueError, TypeError):
+        return None
+
+
 def _fetch_from_push2(code: str, days: int) -> dict | None:
     """Fetch fund flow from push2 (primary, rate-limited)."""
     secid = parse_secid(code)
@@ -68,14 +79,14 @@ def _fetch_from_akshare(code: str, days: int) -> dict | None:
             try:
                 entry = {
                     "date": str(row.get("日期", "")),
-                    "main_net_inflow": float(row.get("主力净流入-净额", 0)),
-                    "small_net_inflow": float(row.get("小单净流入-净额", 0)),
-                    "medium_net_inflow": float(row.get("中单净流入-净额", 0)),
-                    "large_net_inflow": float(row.get("大单净流入-净额", 0)),
-                    "super_large_net_inflow": float(row.get("超大单净流入-净额", 0)),
-                    "main_pct": float(row.get("主力净流入-净占比", 0)),
-                    "small_pct": float(row.get("小单净流入-净占比", 0)),
-                    "medium_pct": float(row.get("中单净流入-净占比", 0)),
+                    "main_net_inflow": _safe_val(row.get("主力净流入-净额")),
+                    "small_net_inflow": _safe_val(row.get("小单净流入-净额")),
+                    "medium_net_inflow": _safe_val(row.get("中单净流入-净额")),
+                    "large_net_inflow": _safe_val(row.get("大单净流入-净额")),
+                    "super_large_net_inflow": _safe_val(row.get("超大单净流入-净额")),
+                    "main_pct": _safe_val(row.get("主力净流入-净占比")),
+                    "small_pct": _safe_val(row.get("小单净流入-净占比")),
+                    "medium_pct": _safe_val(row.get("中单净流入-净占比")),
                 }
                 result.append(entry)
             except (ValueError, TypeError):

@@ -187,9 +187,9 @@ def momentum_factor(code: str, ctx=None) -> dict:
         "score": composite,
         "coverage_pct": coverage_pct(scores),
         "details": {
-            "return_5d_pct": round(ret_5d, 2) if ret_5d else None,
-            "return_20d_pct": round(ret_20d, 2) if ret_20d else None,
-            "return_60d_pct": round(ret_60d, 2) if ret_60d else None,
+            "return_5d_pct": round(ret_5d, 2) if ret_5d is not None else None,
+            "return_20d_pct": round(ret_20d, 2) if ret_20d is not None else None,
+            "return_60d_pct": round(ret_60d, 2) if ret_60d is not None else None,
             "relative_20d_pct": round(rel_20d, 2) if rel_20d is not None else None,
             "price_vs_ma20_pct": val.get("price_vs_ma20") if "error" not in val else None,
             "reversal_score": scores.get("reversal"),

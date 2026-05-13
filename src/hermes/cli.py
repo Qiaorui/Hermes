@@ -613,8 +613,8 @@ def portfolio_remove(id: int):
     h = get_holding(id)
     if h:
         remove_holding(id)
-        q = stock_quote(h.code) if "error" not in stock_quote(h.code) else {}
-        sell_price = q.get("price", h.cost_price) or h.cost_price
+        q = stock_quote(h.code)
+        sell_price = q.get("price", h.cost_price) if "error" not in q else h.cost_price
         add_transaction(h.code, h.name, "sell", sell_price, h.shares, f"清仓 #{id} 成本{h.cost_price}元")
         typer.echo(f"已删除持仓 #{id}: {h.code} {h.name}")
     else:

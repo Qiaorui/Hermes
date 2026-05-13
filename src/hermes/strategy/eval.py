@@ -229,9 +229,9 @@ def analyze(code: str) -> dict:
         three_exp_ratio = round(three_exp_total / rev * 100, 2) if rev > 0 else None
     debt_ratio = latest_bal.get("DEBT_ASSET_RATIO")
     ocf = latest_cf.get("NETCASH_OPERATE")
-    # ROIC = 净利润 / (总资产 - 流动负债+非流动负债无关) → simplified: 净利润/总资产
+    # ROA = 净利润 / 总资产
     total_assets = latest_bal.get("TOTAL_ASSETS")
-    roic = round(np_val / total_assets * 100, 2) if np_val is not None and total_assets is not None and total_assets > 0 else None
+    roa = round(np_val / total_assets * 100, 2) if np_val is not None and total_assets is not None and total_assets > 0 else None
 
     report += f"| 营收(最新) | {_yi(rev)} | {_pct(revenue_yoy)} |\n"
     report += f"| 净利润(最新) | {_yi(np_val)} | {_pct(profit_yoy)} |\n"
@@ -239,7 +239,7 @@ def analyze(code: str) -> dict:
     report += f"| 净利率 | {_pct(np_ratio)} | {'良好' if np_ratio is not None and np_ratio > 10 else '偏低' if np_ratio is not None and np_ratio < 5 else 'N/A'} |\n"
     report += f"| 毛利率(营业利润率) | {_pct(op_profit_ratio)} | {'高毛利' if op_profit_ratio is not None and op_profit_ratio > 20 else '中等' if op_profit_ratio is not None else 'N/A'} |\n"
     report += f"| 三费占比 | {_pct(three_exp_ratio)} | {'费用偏高' if three_exp_ratio is not None and three_exp_ratio > 30 else '费用可控' if three_exp_ratio is not None else 'N/A'} |\n"
-    report += f"| ROIC | {_pct(roic)} | {'优秀' if roic is not None and roic > 15 else '一般' if roic is not None else 'N/A'} |\n"
+    report += f"| ROA | {_pct(roa)} | {'优秀' if roa is not None and roa > 15 else '一般' if roa is not None else 'N/A'} |\n"
     report += f"| 经营现金流 | {_yi(ocf)} | {'健康' if ocf is not None and np_val is not None and ocf > np_val else '偏弱' if ocf is not None and np_val is not None and ocf < np_val * 0.5 else 'N/A'} |\n"
     report += f"| 资产负债率 | {_pct(debt_ratio)} | {'低杠杆' if debt_ratio is not None and debt_ratio < 40 else '中等' if debt_ratio is not None and debt_ratio < 60 else '高杠杆'} |\n"
     # 分红可持续性: payout ratio from dividend data

@@ -20,14 +20,14 @@ from hermes.factors.liquidity import liquidity_factor
 from hermes.factors.composite import composite_factor, ALL_FACTORS, FACTOR_FUNCS
 
 
-def factor_score(code: str, factors: list[str] | None = None) -> dict:
+def factor_score(code: str, factors: list[str] | None = None, ctx=None) -> dict:
     """Compute specified factor scores for a stock. Returns dict with all factor results."""
     names = factors or ALL_FACTORS
     results = {}
     for name in names:
         func = FACTOR_FUNCS.get(name)
         if func:
-            r = func(code)
+            r = func(code, ctx=ctx) if ctx is not None else func(code)
             if "error" not in r:
                 results[name] = r
     return {"code": code, "factors": results, "count": len(results)}

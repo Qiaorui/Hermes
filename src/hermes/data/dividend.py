@@ -34,7 +34,7 @@ def _fetch_from_akshare(code: str) -> dict | None:
                     continue
                 year = str(row.get("报告期", ""))[:4]
                 dividend_yield_raw = row.get("现金分红-股息率")
-                yield_pct = float(dividend_yield_raw) * 100 if dividend_yield_raw and float(dividend_yield_raw) > 0 else None
+                yield_pct = float(dividend_yield_raw) * 100 if dividend_yield_raw is not None and str(dividend_yield_raw) not in ("", "-", "nan") else None
                 plan_desc = str(row.get("现金分红-现金分红比例描述", ""))
                 records.append({
                     "year": year,

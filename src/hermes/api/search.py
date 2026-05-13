@@ -104,6 +104,7 @@ def fetch_pdf(url: str, keywords: list[str] | None = None, max_length: int = 500
         from pypdf import PdfReader
         reader = PdfReader(io.BytesIO(r.content))
         pages_text = []
+        page_count = len(reader.pages)
         for page in reader.pages:
             text = page.extract_text() or ""
             pages_text.append(text)
@@ -113,6 +114,7 @@ def fetch_pdf(url: str, keywords: list[str] | None = None, max_length: int = 500
         try:
             import pdfplumber
             with pdfplumber.open(io.BytesIO(r.content)) as pdf:
+                page_count = len(pdf.pages)
                 full_text = "\n".join(p.extract_text() or "" for p in pdf.pages)
         except ImportError:
             return {"error": "PDF extraction requires pypdf or pdfplumber package", "url": url, "is_pdf": True}
@@ -139,4 +141,4 @@ def fetch_pdf(url: str, keywords: list[str] | None = None, max_length: int = 500
         text = full_text
 
     text = text[:max_length]
-    return {"url": url, "length": len(text), "content": text, "page_count": len(reader.pages), "is_pdf": True}
+    return {"url": url, "length": len(text), "content": text, "page_count": page_count, "is_pdf": True}
